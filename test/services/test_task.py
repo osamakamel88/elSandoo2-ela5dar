@@ -303,6 +303,74 @@ class TestTaskService(unittest.TestCase):
         self.assertEqual(warnings, [{"code": "sonilo_bgm_failed", "video_index": 1}])
         self.assertTrue(generate.call_args.kwargs["bgm_file_override"].endswith(".m4a"))
 
+    def test_run_pipeline_fails_fast_when_ffmpeg_is_not_ready(self):
+        """完整视频流水线必须在 LLM/TTS/素材服务之前先确认 FFmpeg 可用。"""
+        params = VideoParams(video_subject="test")
+        state = MemoryState()
+        with (
+            patch.object(tm.utils, "check_ffmpeg_ready", return_value=False),
+            patch.object(tm, "generate_script") as generate_script,
+            patch.object(tm, "generate_audio") as generate_audio,
+            patch.object(tm, "get_video_materials") as get_materials,
+            patch.object(tm.sm, "state", state),
+        ):
+            result = tm.start("ffmpeg-missing", params)
+
+        generate_script.assert_not_called()
+        generate_audio.assert_not_called()
+        get_materials.assert_not_called()
+        self.assertEqual(result["state"], tm.const.TASK_STATE_FAILED)
+        self.assertEqual(result["failed_stage"], "preflight")
+        self.assertIn("ffmpeg", result["error"])
+
+    def test_run_pipeline_skips_ffmpeg_check_for_script_stage(self):
+        """脚本阶段不涉及音频/视频合成，不应因为缺少 FFmpeg 而被拒绝。"""
+        params = VideoParams(video_subject="test")
+        state = MemoryState()
+        with (
+            patch.object(tm.utils, "check_ffmpeg_ready", return_value=False) as check,
+            patch.object(tm, "generate_script", return_value="脚本") as generate_script,
+            patch.object(tm.sm, "state", state),
+        ):
+            result = tm.start("ffmpeg-missing-script-stage", params, stop_at="script")
+
+        check.assert_not_called()
+        generate_script.assert_called_once()
+        self.assertEqual(result, {"script": "脚本"})
+
+    def test_run_pipeline_skips_ffmpeg_check_for_terms_stage(self):
+        """搜索词阶段同样不需要 FFmpeg，不应触发探测。"""
+        params = VideoParams(video_subject="test")
+        state = MemoryState()
+        with (
+            patch.object(tm.utils, "check_ffmpeg_ready", return_value=False) as check,
+            patch.object(tm, "generate_script", return_value="脚本"),
+            patch.object(tm, "generate_terms", return_value=["term"]),
+            patch.object(tm, "save_script_data"),
+            patch.object(tm.sm, "state", state),
+        ):
+            result = tm.start("ffmpeg-missing-terms-stage", params, stop_at="terms")
+
+        check.assert_not_called()
+        self.assertEqual(result, {"script": "脚本", "terms": ["term"]})
+
+    def test_run_pipeline_proceeds_past_ffmpeg_preflight_when_ready(self):
+        """FFmpeg 可用时探测不应阻塞后续脚本生成。"""
+        params = VideoParams(video_subject="test")
+        state = MemoryState()
+        with (
+            patch.object(tm.utils, "check_ffmpeg_ready", return_value=True) as check,
+            patch.object(tm, "generate_script", return_value="脚本") as generate_script,
+            patch.object(tm.sm, "state", state),
+        ):
+            result = tm.start("ffmpeg-ready", params, stop_at="script")
+
+        # 即使 script 阶段不强制要求 FFmpeg，这里也验证探测函数被跳过调用，
+        # 与"仅在 script/terms 之外阶段才检查"的约定保持一致。
+        check.assert_not_called()
+        generate_script.assert_called_once()
+        self.assertEqual(result, {"script": "脚本"})
+
     def test_start_rejects_missing_sonilo_key_before_costly_pipeline_steps(self):
         """完整任务缺少 Sonilo Key 时不能先调用 LLM、TTS 或素材服务。"""
         params = VideoParams(video_subject="test", bgm_type="sonilo")
@@ -645,7 +713,61 @@ class TestTaskService(unittest.TestCase):
         self.assertIsNone(sub_maker)
         tts.assert_not_called()
 
-    def test_generate_audio_accepts_server_side_custom_file(self):
+    def test_generate_audio_rejects_server_side_custom_file_by_default(self):
+        task_id = "test-custom-audio-untrusted-server-side"
+        task_dir = utils.task_dir(task_id)
+        state = MemoryState()
+
+        with tempfile.NamedTemporaryFile(suffix=".mp3") as server_audio:
+            server_audio.write(b"fake audio")
+            server_audio.flush()
+            params = VideoParams(
+                video_subject="custom audio",
+                video_script="",
+                custom_audio_file=server_audio.name,
+                voice_name="test-voice",
+            )
+
+            try:
+                with (
+                    patch.object(tm.voice, "tts") as tts,
+                    patch.object(tm.voice, "get_audio_duration") as get_duration,
+                    patch.object(tm.sm, "state", state),
+                ):
+                    audio_file, audio_duration, result_sub_maker = tm.generate_audio(
+                        task_id, params, "script"
+                    )
+            finally:
+                shutil.rmtree(task_dir, ignore_errors=True)
+
+        self.assertIsNone(audio_file)
+        self.assertIsNone(audio_duration)
+        self.assertIsNone(result_sub_maker)
+        tts.assert_not_called()
+        get_duration.assert_not_called()
+        failed_task = state.get_task(task_id)
+        self.assertEqual(failed_task["failed_stage"], "audio")
+        self.assertIn("current task directory", failed_task["error"])
+
+    def test_external_custom_audio_error_does_not_reveal_file_existence(self):
+        task_id = "test-custom-audio-existence-oracle"
+        task_dir = utils.task_dir(task_id)
+
+        with tempfile.NamedTemporaryFile(suffix=".mp3") as server_audio:
+            external_paths = [server_audio.name, f"{server_audio.name}.missing"]
+            errors = []
+            try:
+                for external_path in external_paths:
+                    with self.assertRaises(ValueError) as raised:
+                        tm.resolve_custom_audio_file(task_id, external_path)
+                    errors.append(str(raised.exception))
+            finally:
+                shutil.rmtree(task_dir, ignore_errors=True)
+
+        self.assertEqual(errors[0], errors[1])
+        self.assertIn("current task directory", errors[0])
+
+    def test_generate_audio_accepts_server_side_custom_file_for_trusted_cli(self):
         task_id = "test-custom-audio-server-side"
         task_dir = utils.task_dir(task_id)
 
@@ -665,7 +787,10 @@ class TestTaskService(unittest.TestCase):
                     patch.object(tm.voice, "get_audio_duration", return_value=6),
                 ):
                     audio_file, audio_duration, result_sub_maker = tm.generate_audio(
-                        task_id, params, "script"
+                        task_id,
+                        params,
+                        "script",
+                        allow_server_file_input=True,
                     )
             finally:
                 shutil.rmtree(task_dir, ignore_errors=True)
@@ -891,6 +1016,37 @@ class TestTaskService(unittest.TestCase):
 
                 self.assertEqual(result, expected)
                 generate_final.assert_not_called()
+
+    def test_start_forwards_trusted_server_file_flag_to_audio_stage(self):
+        params = VideoParams(video_subject="CLI custom audio")
+
+        with (
+            patch.object(tm.utils, "check_ffmpeg_ready", return_value=True),
+            patch.object(tm, "generate_script", return_value="generated script"),
+            patch.object(tm, "generate_terms", return_value=["audio"]),
+            patch.object(tm, "save_script_data"),
+            patch.object(
+                tm,
+                "generate_audio",
+                return_value=("audio.mp3", 5, None),
+            ) as generate_audio,
+            patch.object(tm.sm.state, "update_task"),
+        ):
+            result = tm.start(
+                "trusted-cli-audio",
+                params,
+                stop_at="audio",
+                allow_server_file_input=True,
+            )
+
+        self.assertEqual(result, {"audio_file": "audio.mp3", "audio_duration": 5})
+        generate_audio.assert_called_once_with(
+            "trusted-cli-audio",
+            params,
+            "generated script",
+            voice_preview=None,
+            allow_server_file_input=True,
+        )
 
     def test_start_completes_video_without_cross_posting(self):
         """
@@ -1422,6 +1578,177 @@ class TestTaskService(unittest.TestCase):
         task = state.get_task("transient-state-failure")
         self.assertEqual(task["cross_post_state"], tm.const.CROSS_POST_STATE_COMPLETE)
         self.assertIsNone(task["cross_post_error"])
+
+    def test_cross_post_generates_caption_for_non_youtube_platforms(self):
+        """
+        TikTok/Instagram 发布同样要生成一次社交文案，并把 caption 作为所有
+        成片共享的发布标题，而不是直接发送原始主题。
+        """
+        metadata = {
+            "title": "Coffee Hook",
+            "caption": "Watch this coffee ritual.",
+            "hashtags": ["#coffee"],
+        }
+        state = MemoryState()
+        cases = {
+            "tiktok-first": (("tiktok", "instagram"), "tiktok"),
+            "instagram-first": (("instagram", "tiktok"), "instagram_reels"),
+        }
+
+        for case_name, (platforms, expected_platform) in cases.items():
+            with self.subTest(case=case_name):
+                task_id = f"caption-{case_name}"
+                state.update_task(
+                    task_id,
+                    state=tm.const.TASK_STATE_COMPLETE,
+                    progress=100,
+                    videos=["final.mp4"],
+                    cross_post_state=tm.const.CROSS_POST_STATE_PENDING,
+                )
+                with (
+                    patch.object(tm.sm, "state", state),
+                    patch.object(
+                        tm.llm,
+                        "generate_social_metadata",
+                        return_value=metadata,
+                    ) as generate_metadata,
+                    patch.object(
+                        tm.upload_post,
+                        "cross_post_video",
+                        return_value={"success": True},
+                    ) as cross_post,
+                ):
+                    tm._run_cross_post(
+                        task_id,
+                        ("final.mp4",),
+                        "Coffee",
+                        "A short coffee story.",
+                        "en",
+                        platforms,
+                        "private",
+                    )
+
+                generate_metadata.assert_called_once_with(
+                    video_subject="Coffee",
+                    video_script="A short coffee story.",
+                    language="en",
+                    platform=expected_platform,
+                )
+                cross_post.assert_called_once()
+                call = cross_post.call_args
+                self.assertEqual(call.kwargs["title"], "Watch this coffee ritual.")
+                self.assertEqual(call.kwargs["platforms"], list(platforms))
+                self.assertIsNone(call.kwargs["youtube_extra"])
+                task = state.get_task(task_id)
+                self.assertEqual(
+                    task["cross_post_state"], tm.const.CROSS_POST_STATE_COMPLETE
+                )
+
+    def test_cross_post_shares_metadata_between_youtube_fields_and_title(self):
+        """YouTube 专属字段与共享发布标题必须来自同一次元数据调用。"""
+        metadata = {
+            "title": "Morning Coffee",
+            "caption": "A better morning.",
+            "hashtags": ["#coffee", "#shorts"],
+        }
+        state = MemoryState()
+        state.update_task(
+            "shared-youtube-metadata",
+            state=tm.const.TASK_STATE_COMPLETE,
+            progress=100,
+            videos=["final-1.mp4", "final-2.mp4"],
+            cross_post_state=tm.const.CROSS_POST_STATE_PENDING,
+        )
+
+        with (
+            patch.object(tm.sm, "state", state),
+            patch.object(
+                tm.llm,
+                "generate_social_metadata",
+                return_value=metadata,
+            ) as generate_metadata,
+            patch.object(
+                tm.upload_post,
+                "cross_post_video",
+                return_value={"success": True},
+            ) as cross_post,
+        ):
+            tm._run_cross_post(
+                "shared-youtube-metadata",
+                ("final-1.mp4", "final-2.mp4"),
+                "Coffee",
+                "A short coffee story.",
+                "en",
+                ("youtube",),
+                "unlisted",
+            )
+
+        generate_metadata.assert_called_once_with(
+            video_subject="Coffee",
+            video_script="A short coffee story.",
+            language="en",
+            platform="youtube_shorts",
+        )
+        expected_extra = {
+            "youtube_title": "Morning Coffee",
+            "youtube_description": "A better morning.",
+            "tags": ["#coffee", "#shorts"],
+            "privacyStatus": "unlisted",
+            "containsSyntheticMedia": True,
+        }
+        self.assertEqual(cross_post.call_count, 2)
+        for call in cross_post.call_args_list:
+            self.assertEqual(call.kwargs["title"], "A better morning.")
+            self.assertEqual(call.kwargs["youtube_extra"], expected_extra)
+
+    def test_cross_post_empty_metadata_degrades_to_fallback_title(self):
+        """元数据缺失或为空时逐级退回，最终保留旧的通用兜底标题。"""
+        state = MemoryState()
+        cases = {
+            "legacy-string": ({}, "", "Check out this video! #shorts #viral"),
+            "title-over-subject": (
+                {"title": "Fallback Title", "caption": ""},
+                "Coffee",
+                "Fallback Title",
+            ),
+        }
+
+        for case_name, (metadata, subject, expected_title) in cases.items():
+            with self.subTest(case=case_name):
+                task_id = f"fallback-title-{case_name}"
+                state.update_task(
+                    task_id,
+                    state=tm.const.TASK_STATE_COMPLETE,
+                    progress=100,
+                    videos=["final.mp4"],
+                    cross_post_state=tm.const.CROSS_POST_STATE_PENDING,
+                )
+                with (
+                    patch.object(tm.sm, "state", state),
+                    patch.object(
+                        tm.llm,
+                        "generate_social_metadata",
+                        return_value=metadata,
+                    ) as generate_metadata,
+                    patch.object(
+                        tm.upload_post,
+                        "cross_post_video",
+                        return_value={"success": True},
+                    ) as cross_post,
+                ):
+                    tm._run_cross_post(
+                        task_id,
+                        ("final.mp4",),
+                        subject,
+                        "",
+                        "",
+                        ("tiktok",),
+                        "private",
+                    )
+
+                generate_metadata.assert_called_once()
+                cross_post.assert_called_once()
+                self.assertEqual(cross_post.call_args.kwargs["title"], expected_title)
 
     def test_recover_interrupted_cross_posts_preserves_active_future(self):
         """启动恢复只处理遗留状态，当前进程仍持有的发布任务不能被误伤。"""
