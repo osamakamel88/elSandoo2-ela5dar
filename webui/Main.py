@@ -16,6 +16,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 import requests
+import streamlit as st
 from loguru import logger
 try:
     from streamlit_tour import Tour
