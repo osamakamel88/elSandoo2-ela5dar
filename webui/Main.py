@@ -16,9 +16,11 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 import requests
-import streamlit as st
 from loguru import logger
-from streamlit_tour import Tour
+try:
+    from streamlit_tour import Tour
+except ImportError:
+    Tour = None
 
 # WebUI 作为独立入口运行时，需要让项目根目录优先于第三方依赖，
 # 避免依赖中的同名 app 包遮蔽 MoneyPrinterTurbo 自己的 app 包。
@@ -1561,7 +1563,8 @@ def tr_optional(key, fallback_language=""):
 
 
 def render_onboarding_tour():
-    # 引导只覆盖三个稳定入口，不尝试控制 Dialog、Tabs 或业务表单。这样既能让
+    if Tour is None:
+        return
     # 新用户理解完整流程，也不会把引导状态与 Streamlit 的动态组件生命周期耦合。
     steps = [
         Tour.bind(
