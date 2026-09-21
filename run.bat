@@ -2,6 +2,11 @@
 title elSandoo2 el a5dar - Recode Developments
 cd /d "%~dp0"
 
+echo ========================================================
+echo          elSandoo2 el a5dar (by Recode Developments)
+echo ========================================================
+echo.
+
 rem Add portable FFmpeg to PATH if present
 if exist "%~dp0bin\ffmpeg\ffmpeg.exe" (
     set "PATH=%~dp0bin\ffmpeg;%PATH%"
@@ -28,16 +33,20 @@ if exist "%~dp0venv\Scripts\python.exe" (
 )
 
 if "%PY_EXE%"=="" (
-    echo ========================================================
     echo [ERROR] Virtual environment not found!
     echo Please run 'install.bat' first to set up prerequisites.
-    echo ========================================================
+    echo.
     pause
     exit /b 1
 )
 
-start http://localhost:8501
+echo Starting elSandoo2 el a5dar WebUI at http://127.0.0.1:8501...
+echo Please wait a few seconds for the modules to load...
+echo.
 
-"%PY_EXE%" -m streamlit run webui/Main.py --browser.gatherUsageStats false --server.port 8501
+rem Launch browser with a 4-second delay so the server is ready when the page loads
+start /b cmd /c "timeout /t 4 /nobreak >nul & start http://127.0.0.1:8501"
+
+"%PY_EXE%" -m streamlit run webui/Main.py --server.address 127.0.0.1 --server.port 8501 --browser.serverAddress 127.0.0.1 --browser.gatherUsageStats false --server.enableCORS true
 
 pause
