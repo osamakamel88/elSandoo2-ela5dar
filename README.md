@@ -45,8 +45,8 @@
 
 ### Installation & Launch:
 ```bash
-git clone https://github.com/osamakamel88/elSandoo2-el-a5dar.git
-cd elSandoo2-el-a5dar
+git clone https://github.com/osamakamel88/elSandoo2-ela5dar.git
+cd elSandoo2-ela5dar
 ```
 * **Step 1:** Double-click **`install.bat`**
   *(Automatically detects and installs Python 3.11, portable FFmpeg, Visual C++ Runtime, updates code from GitHub, and installs all dependencies)*.

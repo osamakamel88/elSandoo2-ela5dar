@@ -1,4 +1,4 @@
-﻿# ==============================================================================
+# ==============================================================================
 # elSandoo2 el a5dar (The Green Box) - Setup & Prerequisite Engine
 # Developed & Customized by Recode Developments (Osama Kamel)
 # ==============================================================================
@@ -16,8 +16,8 @@ param(
 
 $ErrorActionPreference = "Continue"
 $ProjectDir = (Resolve-Path "$PSScriptRoot").Path
-$GitHubRepoUrl = "https://github.com/osamakamel88/elSandoo2-el-a5dar.git"
-$GitHubApiUrl = "https://api.github.com/repos/osamakamel88/elSandoo2-el-a5dar/commits/main"
+$GitHubRepoUrl = "https://github.com/osamakamel88/elSandoo2-ela5dar.git"
+$GitHubApiUrl = "https://api.github.com/repos/osamakamel88/elSandoo2-ela5dar/commits/main"
 
 # UI Helper functions
 function Write-Header {
