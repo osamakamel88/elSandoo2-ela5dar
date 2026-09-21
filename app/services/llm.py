@@ -587,6 +587,53 @@ def generate_script(
     return final_script.strip()
 
 
+def generate_product_script(
+    product_info: dict,
+    theme_context: str = "",
+    language: str = "",
+    app_config=None,
+) -> str:
+    """Generate a promotional short video script from scraped product metadata and creative theme context."""
+    from app.services import product_importer
+
+    prompt = product_importer.build_product_script_prompt(
+        product_info=product_info,
+        theme_context=theme_context,
+        language=language,
+    )
+    title = product_info.get("title", "")
+    logger.info(
+        f"generating product video script: title='{title[:40]}', "
+        f"theme='{theme_context[:40]}', language='{language}'"
+    )
+    final_script = ""
+    for i in range(_max_retries):
+        try:
+            if app_config is None:
+                response = _generate_response(prompt=prompt)
+            else:
+                response = _generate_response(prompt=prompt, app_config=app_config)
+
+            if response:
+                # Clean narration text
+                cleaned = response.replace("*", "").replace("#", "")
+                cleaned = re.sub(r"\[.*?\]", "", cleaned)
+                cleaned = re.sub(r"\(.*?\)", "", cleaned)
+                final_script = cleaned.strip()
+
+            if final_script:
+                break
+        except Exception as exc:
+            logger.error(f"failed to generate product script: {exc}")
+
+        if i < _max_retries - 1:
+            logger.warning(f"retrying product script generation... attempt {i + 2}")
+
+    if final_script:
+        logger.success(f"product script generated successfully: \n{final_script[:120]}...")
+    return final_script.strip()
+
+
 def _strip_code_fence(text: str) -> str:
     """Strip a surrounding markdown code fence from an LLM response.
 

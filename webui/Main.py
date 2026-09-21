@@ -3454,11 +3454,158 @@ def _render_loomloom_script_generation(params):
     _render_loomloom_candidates()
 
 
+def _render_product_and_post_importer(params):
+    """
+    Import product metadata, high-resolution media, and generate themed promotional scripts
+    from an e-commerce link (Amazon, Noon, Shopify, AliExpress) or social media post.
+    """
+    with st.expander("🛍️ Import from Product Link or Social Post (Amazon, Noon, TikTok, Shopify...)", expanded=False):
+        st.caption(
+            "Paste a link to any product page or social post. ElSandoo2 will automatically pull "
+            "product specs, scrape high-res photos, and craft a high-converting promotional script based on your theme!"
+        )
+
+        product_url = st.text_input(
+            "Product or Post Link",
+            placeholder="https://www.amazon.eg/... or Noon, Shopify, TikTok, AliExpress...",
+            key="importer_product_url",
+        )
+
+        theme_presets = [
+            "🌟 Viral TikTok / Reels Promo (High-Energy Hook + Benefits + CTA)",
+            "🇪🇬 إعلان تيك توك تشويقي باللهجة المصرية (عرض خاص، جودة عالية وخصومات)",
+            "🇸🇦 إعلان تسويقي باللهجة الخليجية (جودة ممتازة، تجربة فريدة، اطلب الآن)",
+            "💬 Authentic Customer Review & Unboxing Experience",
+            "🔥 Urgent Flash Sale / Limited Time Offer Promo",
+            "✨ Luxury & Aesthetic Brand Showcase",
+            "✏️ Custom Theme / Write your own...",
+        ]
+
+        selected_preset = st.selectbox(
+            "Video Theme / Creative Context",
+            options=theme_presets,
+            key="importer_theme_select",
+        )
+
+        if "Custom Theme" in selected_preset:
+            theme_context = st.text_area(
+                "Describe the video theme, hook angle, or tone",
+                placeholder="e.g., A funny TikTok review in Egyptian dialect showing how this product solves back pain...",
+                key="importer_custom_theme_text",
+                height=70,
+            ).strip()
+        else:
+            theme_context = selected_preset
+
+        pull_images_toggle = st.checkbox(
+            "Automatically download product photos and set up Custom Asset Slideshow",
+            value=True,
+            key="importer_pull_images_toggle",
+            help="Downloads real product images into your local assets folder so the video is ready to render immediately.",
+        )
+
+        fetch_clicked = st.button(
+            "✨ Fetch Link, Generate Script & Pull Media",
+            key="importer_execute_btn",
+            type="primary",
+            use_container_width=True,
+            icon=":material/download_for_offline:",
+        )
+
+        if fetch_clicked:
+            if not product_url or not product_url.strip():
+                st.warning("Please paste a product or social post URL first!")
+            else:
+                with st.spinner("Scraping page details & analyzing product metadata..."):
+                    from app.services import product_importer
+
+                    try:
+                        html_content, final_url = product_importer.fetch_url(product_url)
+                        info = product_importer.extract_product_or_post_info(final_url, html_content)
+                    except Exception as exc:
+                        st.error(f"Failed to fetch content from link: {exc}")
+                        return
+
+                    if not info.get("title") and not info.get("description"):
+                        st.warning("Could not extract product information from this link. Please ensure the link is publicly accessible.")
+                        return
+
+                    staged_materials = []
+                    if pull_images_toggle and info.get("image_urls"):
+                        with st.spinner(f"Downloading high-resolution product photos..."):
+                            staged_materials = product_importer.download_and_stage_images(info["image_urls"])
+
+                    with st.spinner("Crafting tailored promotional script with AI..."):
+                        def generate_promo_script(app_config_snapshot):
+                            script = llm.generate_product_script(
+                                product_info=info,
+                                theme_context=theme_context,
+                                language=params.video_language,
+                                app_config=app_config_snapshot,
+                            )
+                            terms = llm.generate_terms(
+                                info.get("title", "Product"),
+                                script,
+                                amount=8 if params.match_materials_to_script else 5,
+                                match_script_order=params.match_materials_to_script,
+                                app_config=app_config_snapshot,
+                            )
+                            return script, terms
+
+                        script, terms = _run_llm_read_operation(
+                            "generate_product_script",
+                            generate_promo_script,
+                        )
+
+                    if script:
+                        st.session_state["video_subject"] = info.get("title", "")
+                        st.session_state["video_script"] = script
+                        st.session_state["video_terms"] = ", ".join(terms) if terms else info.get("title", "")
+                        st.session_state["last_imported_product"] = info
+
+                        if staged_materials:
+                            st.session_state["local_video_materials"] = [
+                                {
+                                    "provider": m["provider"],
+                                    "url": m["url"],
+                                    "duration": 0,
+                                }
+                                for m in staged_materials
+                            ]
+                            st.session_state["staged_imported_thumbnails"] = [
+                                m["url"] for m in staged_materials
+                            ]
+                            st.session_state["video_source"] = "local"
+                            _set_runtime_config("app", "video_source", "local")
+                            _set_stable_widget_value("video_source_select", "local")
+
+                        st.toast("Product imported & script generated successfully!")
+                        st.rerun(scope="app")
+
+        # Display preview card if product was imported
+        imported = st.session_state.get("last_imported_product")
+        thumbnails = st.session_state.get("staged_imported_thumbnails") or []
+        if imported:
+            with st.container(border=True):
+                col_badge, col_price = st.columns([3, 1])
+                col_badge.markdown(f"**📦 {imported.get('platform', 'Product')}:** {imported.get('title', '')}")
+                if imported.get("price"):
+                    col_price.metric(label="Price", value=f"{imported.get('price')} {imported.get('currency')}")
+
+                if thumbnails:
+                    st.caption(f"Downloaded {len(thumbnails)} product photos for slideshow:")
+                    thumb_cols = st.columns(min(len(thumbnails), 6))
+                    for idx, thumb_path in enumerate(thumbnails[:6]):
+                        if os.path.exists(thumb_path):
+                            thumb_cols[idx].image(thumb_path, use_container_width=True)
+
+
 def _render_script_settings(panel, params):
     """渲染文案设置并更新生成参数。"""
     with panel:
         with st.container(border=True):
             st.write(tr("Video Script Settings"))
+            _render_product_and_post_importer(params)
             params.video_subject = st.text_area(
                 tr("Video Subject"),
                 placeholder=tr("Video Subject Placeholder"),

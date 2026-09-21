@@ -201,7 +201,13 @@ if ($internetAvailable -and -not $SkipUpdate) {
 }
 
 if ($UpdateOnly) {
-    Write-Host "`n[SUCCESS] Update check completed!" -ForegroundColor Green
+    $venvPy = Join-Path $ProjectDir "venv\Scripts\python.exe"
+    $reqFile = Join-Path $ProjectDir "requirements.txt"
+    if ((Test-Path $venvPy) -and (Test-Path $reqFile)) {
+        Write-Host "`n  Syncing dependencies from requirements.txt..." -ForegroundColor Cyan
+        & $venvPy -m pip install -r $reqFile --quiet
+    }
+    Write-Host "`n[SUCCESS] Update check and dependencies sync completed!" -ForegroundColor Green
     exit 0
 }
 

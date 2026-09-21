@@ -24,6 +24,8 @@
 
 **Elsandoo2 Ela5dar** is an all-in-one AI video production suite designed for creators, marketers, and developers:
 
+- 🛍️ **AI Product Link & Social Post Importer**:
+  Paste any product link (Amazon, Noon, Shopify, AliExpress) or social post (TikTok, Instagram, Twitter/X). The system automatically scrapes product specs, downloads high-res images into your slideshow, and writes a customized marketing script tailored to your theme and dialect!
 - 🖼️ **Custom Asset & Image Slideshow Uploader**:
   Upload your own photos (`.jpg`, `.png`, `.webp`, `.bmp`) or video clips (`.mp4`, `.mov`, `.webm`). The system automatically sequences your assets, calculates display duration, applies smooth transitions, and syncs perfectly with your voiceover narration and subtitles.
 - 🤖 **AI Script & Keyword Generation**:
@@ -72,6 +74,8 @@ cd elSandoo2-ela5dar
 
 **الصندوق الأخضر (Elsandoo2 Ela5dar)** هو نظام ذكي متكامل لتوليد مقاطع الفيديو القصيرة تلقائياً لمنصات تيك توك، ريلز، ويوتيوب شورتس:
 
+* 🛍️ **استيراد المنتجات والمنشورات بالذكاء الاصطناعي (Product & Post Importer)**:
+  إمكانية لصق رابط أي منتج (أمازون، نون، شوبيفاي، تيك توك، إلخ) ليقوم النظام تلقائياً بسحب تفاصيل المنتج ومواصفاته، وتحميل الصور الأصلية بجودة عالية، وتوليد سكريبت تسويقي مخصص وفقاً للثيم واللهجة المطلوبة.
 * 🖼️ **ميزة رفع الصور والفيديوهات الخاصة (Slideshow Generator)**:
   إمكانية رفع صورك وفيديوهاتك الخاصة، ليقوم النظام تلقائياً بتوزيع مدة عرض كل صورة بدقة حسب طول التعليق الصوتي وإضافة انتقالات سينمائية وترجمة احترافية متزامنة.
 * 🤖 **توليد السكريبتات الذكية**:
