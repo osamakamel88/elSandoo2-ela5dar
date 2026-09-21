@@ -416,3 +416,56 @@ SCRIPTWRITING RULES:
 4. Keep the pace conversational, dynamic, and easy for text-to-speech to pronounce naturally.
 """
     return prompt.strip()
+
+
+def generate_product_script(
+    product_info: Dict[str, Any],
+    theme_context: str = "",
+    language: str = "",
+    app_config=None,
+) -> str:
+    """
+    Generate promotional script using the project's LLM engine.
+    Self-contained within product_importer so it never fails due to stale module caches.
+    """
+    from app.services import llm
+
+    prompt = build_product_script_prompt(
+        product_info=product_info,
+        theme_context=theme_context,
+        language=language,
+    )
+    title = product_info.get("title", "")
+    logger.info(f"generating product video script: title='{title[:40]}', theme='{theme_context[:40]}'")
+
+    final_script = ""
+    for i in range(3):
+        try:
+            if hasattr(llm, "_generate_response"):
+                if app_config is None:
+                    response = llm._generate_response(prompt=prompt)
+                else:
+                    response = llm._generate_response(prompt=prompt, app_config=app_config)
+            elif hasattr(llm, "generate_script"):
+                response = llm.generate_script(
+                    video_subject=f"{title} - {theme_context}",
+                    language=language,
+                    video_script_prompt=prompt,
+                    app_config=app_config,
+                )
+            else:
+                response = ""
+
+            if response:
+                cleaned = response.replace("*", "").replace("#", "")
+                cleaned = re.sub(r"\[.*?\]", "", cleaned)
+                cleaned = re.sub(r"\(.*?\)", "", cleaned)
+                final_script = cleaned.strip()
+
+            if final_script:
+                break
+        except Exception as exc:
+            logger.error(f"failed to generate product script in attempt {i+1}: {exc}")
+
+    return final_script.strip()
+

@@ -3537,12 +3537,40 @@ def _render_product_and_post_importer(params):
 
                     with st.spinner("Crafting tailored promotional script with AI..."):
                         def generate_promo_script(app_config_snapshot):
-                            script = llm.generate_product_script(
-                                product_info=info,
-                                theme_context=theme_context,
-                                language=params.video_language,
-                                app_config=app_config_snapshot,
-                            )
+                            if hasattr(product_importer, "generate_product_script"):
+                                script = product_importer.generate_product_script(
+                                    product_info=info,
+                                    theme_context=theme_context,
+                                    language=params.video_language,
+                                    app_config=app_config_snapshot,
+                                )
+                            elif hasattr(llm, "generate_product_script"):
+                                script = llm.generate_product_script(
+                                    product_info=info,
+                                    theme_context=theme_context,
+                                    language=params.video_language,
+                                    app_config=app_config_snapshot,
+                                )
+                            else:
+                                import importlib
+                                try:
+                                    importlib.reload(llm)
+                                except Exception:
+                                    pass
+                                if hasattr(llm, "generate_product_script"):
+                                    script = llm.generate_product_script(
+                                        product_info=info,
+                                        theme_context=theme_context,
+                                        language=params.video_language,
+                                        app_config=app_config_snapshot,
+                                    )
+                                else:
+                                    script = llm.generate_script(
+                                        video_subject=f"{info.get('title', '')} - {theme_context}",
+                                        language=params.video_language,
+                                        app_config=app_config_snapshot,
+                                    )
+
                             terms = llm.generate_terms(
                                 info.get("title", "Product"),
                                 script,
