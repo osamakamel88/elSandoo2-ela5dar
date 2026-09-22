@@ -39,6 +39,8 @@ ENGLISH_FALLBACK_KEYS = frozenset(
         "llm_provider_authentication_error.moonshot",
         "Local LLM Script Generation",
         "llm_provider_label.shengsuanyun",
+        "llm_provider_label.kie",
+        "Upload Custom Assets (Images & Videos)",
         "LoomLoom Poll Retry Pending",
         "LoomLoom Poll Retry Warning",
         "Resume LoomLoom Status Check",

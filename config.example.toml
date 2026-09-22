@@ -232,6 +232,12 @@ evolink_api_key = ""
 evolink_base_url = ""
 evolink_model_name = ""
 
+# Kie.ai unified AI platform (Claude 3.7, GPT-4o, Gemini 2.5, DeepSeek, etc.)
+# API key: https://kie.ai/ | Docs: https://docs.kie.ai/
+kie_api_key = ""
+kie_base_url = ""
+kie_model_name = ""
+
 # Ollama. Leave base_url empty to use the environment-aware local default.
 # Set model_name to a model installed by `ollama pull` or shown by `ollama list`.
 ollama_base_url = ""

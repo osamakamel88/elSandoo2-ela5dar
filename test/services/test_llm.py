@@ -331,6 +331,7 @@ class TestLiteLLMProvider(unittest.TestCase):
                 "aihubmix",
                 "aimlapi",
                 "evolink",
+                "kie",
                 "ollama",
                 "oneapi",
                 "litellm",
@@ -355,6 +356,12 @@ class TestLiteLLMProvider(unittest.TestCase):
             shengsuanyun.default_model,
             "deepseek/deepseek-v4-flash",
         )
+        kie = get_llm_provider("kie")
+        self.assertIsNotNone(kie)
+        self.assertEqual(kie.default_label, "Kie.ai")
+        self.assertEqual(kie.default_base_url, "https://api.kie.ai/v1")
+        self.assertEqual(kie.default_model, "claude-3-7-sonnet-20250219")
+        self.assertEqual(kie.api_key_url, "https://kie.ai/")
 
     def test_provider_registry_uses_conventional_locale_and_config_keys(self):
         """统一命名规则可避免 WebUI 为每个 Provider 增加硬编码映射。"""

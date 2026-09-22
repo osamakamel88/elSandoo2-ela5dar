@@ -365,6 +365,13 @@ LLM_PROVIDER_REGISTRY = (
         default_model="gpt-5.5",
         default_base_url="https://direct.evolink.ai/v1",
     ),
+    LLMProviderSpec(
+        "kie",
+        "Kie.ai",
+        api_key_url="https://kie.ai/",
+        default_model="claude-3-7-sonnet-20250219",
+        default_base_url="https://api.kie.ai/v1",
+    ),
     # 本地部署与通用网关
     LLMProviderSpec(
         "ollama",
