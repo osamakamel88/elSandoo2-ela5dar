@@ -62,10 +62,11 @@ tls_verify = true
 # Video Materials / 视频素材
 # -----------------------------------------------------------------------------
 
-# Available values: "pexels", "pixabay", "coverr", "wavespeed", "loomloom",
-# "local".
-# "wavespeed" generates brand-new clips with WaveSpeed AI text-to-video models
-# instead of searching stock footage; generation is billed per request.
+# Available values: "pexels", "pixabay", "coverr", "wavespeed", "image_generation",
+# "kie_video", "loomloom", "local".
+# "image_generation" generates AI images (Flux, Midjourney, DALL-E) and animates them.
+# "wavespeed" generates brand-new clips with WaveSpeed AI text-to-video models.
+# "kie_video" generates cinematic clips using Kie.ai video models (Kling, Wan, Seedance).
 # "loomloom" is a paid Shengsuan Cloud source and requires explicit
 # confirmation in the WebUI before each generation request.
 video_source = "pexels"
@@ -95,6 +96,20 @@ wavespeed_api_keys = []
 # chosen model supports a different range.
 # wavespeed_min_duration = 4
 # wavespeed_max_duration = 15
+
+# AI Image Generation Settings
+# Provider: "kie" (uses kie_api_key), "pollinations" (free, no key), "openai" (uses openai_api_key)
+image_provider = "kie"
+# Models for Kie: "flux-kontext-pro", "flux-2/pro-text-to-image", "gpt-image-2", "grok-imagine"
+# Models for Pollinations: "flux", "flux-realism", "midjourney", "turbo"
+# Models for OpenAI: "dall-e-3", "dall-e-2"
+image_model_name = "flux-kontext-pro"
+image_prompt_style = "cinematic, photorealistic, 8k, highly detailed"
+image_quality = "standard"
+
+# Kie.ai AI Video Generation Settings
+# Models: "kling-v1-5", "kling-v2-1", "wan-2-1", "seedance-2-0"
+kie_video_model = "kling-v1-5"
 
 # Optional TwelveLabs integration for semantic material ranking and video QA.
 # Install the optional dependency with: uv sync --extra twelvelabs

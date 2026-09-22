@@ -1189,6 +1189,26 @@ def download_videos(
             material_directory=material_directory,
         )
 
+    if source == "image_generation":
+        return _download_videos_image_generation_on_demand(
+            task_id=task_id,
+            search_terms=search_terms,
+            video_aspect=video_aspect,
+            audio_duration=audio_duration,
+            max_clip_duration=max_clip_duration,
+            material_directory=material_directory,
+        )
+
+    if source == "kie_video":
+        return _download_videos_kie_video_on_demand(
+            task_id=task_id,
+            search_terms=search_terms,
+            video_aspect=video_aspect,
+            audio_duration=audio_duration,
+            max_clip_duration=max_clip_duration,
+            material_directory=material_directory,
+        )
+
     if match_script_order:
         return _download_videos_by_script_order(
             task_id=task_id,
@@ -1339,6 +1359,234 @@ def _download_videos_wavespeed_on_demand(
             )
             break
     logger.success(f"generated and downloaded {len(video_paths)} videos")
+    _persist_material_sources(task_id, material_sources)
+    return video_paths
+
+
+def _download_videos_image_generation_on_demand(
+    *,
+    task_id: str,
+    search_terms: List[str],
+    video_aspect: VideoAspect,
+    audio_duration: float,
+    max_clip_duration: int,
+    material_directory: str,
+) -> List[str]:
+    """
+    Generate scene images using AI Image models (Kie.ai, Pollinations, OpenAI),
+    convert them into animated Ken-Burns MP4 video clips, and return their file paths.
+    """
+    from app.services import image_generator
+
+    if not material_directory:
+        material_directory = utils.storage_dir("local_videos")
+    os.makedirs(material_directory, exist_ok=True)
+
+    terms = [term.strip() for term in search_terms if term and term.strip()]
+    if not terms:
+        terms = ["cinematic scenery, aesthetic background"]
+
+    target_duration = max(float(audio_duration), 5.0)
+    clip_duration = max(int(max_clip_duration), 3)
+
+    image_provider = config.app.get("image_provider", "kie")
+    image_model_name = config.app.get("image_model_name", "")
+    image_prompt_style = config.app.get("image_prompt_style", "")
+    image_quality = config.app.get("image_quality", "standard")
+
+    logger.info(
+        f"[ImageGen] Generating scenes: terms={len(terms)}, provider={image_provider}, "
+        f"model={image_model_name or 'default'}, target_duration={target_duration:.1f}s"
+    )
+
+    video_paths: List[str] = []
+    material_sources: list[dict[str, Any]] = []
+    total_duration = 0.0
+    term_index = 0
+    max_iterations = max(len(terms) * 4, int(target_duration / clip_duration) + 2)
+
+    while total_duration < target_duration and term_index < max_iterations:
+        current_term = terms[term_index % len(terms)]
+        logger.info(f"[ImageGen] Generating scene {term_index + 1}: prompt={current_term!r}")
+
+        try:
+            img_path = image_generator.generate_scene_image(
+                prompt=current_term,
+                provider=image_provider,
+                model=image_model_name,
+                aspect=video_aspect,
+                style=image_prompt_style,
+                quality=image_quality,
+                output_dir=material_directory,
+            )
+
+            clip_filename = f"clip_{utils.md5(current_term)}_{term_index}_{int(time.time())}.mp4"
+            clip_path = os.path.join(material_directory, clip_filename)
+
+            animated_clip = image_generator.image_to_animated_clip(
+                image_path=img_path,
+                duration=float(clip_duration),
+                output_path=clip_path,
+                aspect=video_aspect,
+            )
+
+            if animated_clip and os.path.exists(animated_clip):
+                video_paths.append(animated_clip)
+                total_duration += clip_duration
+                item = MaterialInfo()
+                item.provider = "image_generation"
+                item.url = animated_clip
+                item.duration = clip_duration
+                item.source_info = {
+                    "provider": "image_generation",
+                    "search_term": current_term,
+                    "model": image_model_name,
+                }
+                material_sources.append(_material_source_record(item, animated_clip))
+                logger.info(
+                    f"[ImageGen] Scene {term_index + 1} ready ({total_duration:.1f}s / {target_duration:.1f}s)"
+                )
+        except Exception as e:
+            logger.error(f"[ImageGen] Failed generating image for scene {term_index + 1}: {str(e)}")
+            if image_provider != "pollinations":
+                try:
+                    logger.warning("[ImageGen] Retrying scene with Pollinations free engine...")
+                    fallback_img = image_generator.generate_image_pollinations(
+                        prompt=current_term,
+                        aspect=video_aspect,
+                        output_dir=material_directory,
+                    )
+                    clip_filename = f"clip_fallback_{term_index}_{int(time.time())}.mp4"
+                    clip_path = os.path.join(material_directory, clip_filename)
+                    animated_clip = image_generator.image_to_animated_clip(
+                        image_path=fallback_img,
+                        duration=float(clip_duration),
+                        output_path=clip_path,
+                        aspect=video_aspect,
+                    )
+                    if animated_clip and os.path.exists(animated_clip):
+                        video_paths.append(animated_clip)
+                        total_duration += clip_duration
+                except Exception as fb_err:
+                    logger.error(f"[ImageGen] Fallback also failed: {str(fb_err)}")
+
+        term_index += 1
+
+    logger.success(f"[ImageGen] Generated {len(video_paths)} scene clips (total: {total_duration:.1f}s)")
+    _persist_material_sources(task_id, material_sources)
+    return video_paths
+
+
+def _download_videos_kie_video_on_demand(
+    *,
+    task_id: str,
+    search_terms: List[str],
+    video_aspect: VideoAspect,
+    audio_duration: float,
+    max_clip_duration: int,
+    material_directory: str,
+) -> List[str]:
+    """
+    Generate video clips using Kie.ai video models (Kling, Wan, Seedance) on demand.
+    """
+    api_key = config.app.get("kie_api_key", "").strip()
+    if not api_key:
+        raise ValueError("Kie.ai API key is required for Kie video generation.")
+
+    if not material_directory:
+        material_directory = utils.storage_dir("cache_videos")
+    os.makedirs(material_directory, exist_ok=True)
+
+    terms = [term.strip() for term in search_terms if term and term.strip()]
+    if not terms:
+        terms = ["cinematic video background"]
+
+    target_duration = max(float(audio_duration), 5.0)
+    clip_duration = min(max(int(max_clip_duration), 4), 10)
+    model_id = config.app.get("kie_video_model", "kling-v1-5").strip()
+
+    aspect_str = "9:16" if getattr(video_aspect, "value", video_aspect) in ("portrait", "9:16") else "16:9"
+
+    video_paths: List[str] = []
+    material_sources: list[dict[str, Any]] = []
+    total_duration = 0.0
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    for idx, term in enumerate(terms):
+        if total_duration >= target_duration:
+            break
+        logger.info(f"[Kie.ai Video] Submitting prompt: {term!r}, model={model_id}")
+        payload = {
+            "model": model_id,
+            "input": {
+                "prompt": term,
+                "aspect_ratio": aspect_str,
+                "duration": str(clip_duration),
+            },
+        }
+        try:
+            res = requests.post(
+                "https://api.kie.ai/api/v1/jobs/createTask",
+                json=payload,
+                headers=headers,
+                proxies=config.proxy,
+                timeout=(15, 45),
+            )
+            if res.status_code != 200:
+                logger.error(f"[Kie.ai Video] Submission failed with {res.status_code}: {res.text}")
+                continue
+
+            sub_data = res.json().get("data", {})
+            v_task_id = sub_data.get("taskId") if isinstance(sub_data, dict) else res.json().get("taskId")
+            if not v_task_id:
+                continue
+
+            deadline = time.monotonic() + 300.0
+            video_url = ""
+            while time.monotonic() < deadline:
+                time.sleep(4.0)
+                q_res = requests.get(
+                    f"https://api.kie.ai/api/v1/jobs/recordInfo?taskId={v_task_id}",
+                    headers=headers,
+                    proxies=config.proxy,
+                    timeout=(10, 30),
+                )
+                if q_res.status_code != 200:
+                    continue
+                q_data = q_res.json().get("data", {})
+                if not isinstance(q_data, dict):
+                    q_data = q_res.json()
+                state = str(q_data.get("state") or q_data.get("status") or "").lower()
+                if state == "success":
+                    out = q_data.get("result") or q_data.get("output") or q_data.get("response")
+                    if isinstance(out, dict):
+                        video_url = out.get("url") or out.get("video_url")
+                    elif isinstance(out, list) and out:
+                        video_url = out[0] if isinstance(out[0], str) else out[0].get("url", "")
+                    elif isinstance(out, str):
+                        video_url = out
+                    break
+                elif state in ("fail", "failed"):
+                    break
+
+            if video_url:
+                saved = save_video(video_url, save_dir=material_directory)
+                if saved and os.path.exists(saved):
+                    video_paths.append(saved)
+                    total_duration += clip_duration
+                    item = MaterialInfo()
+                    item.provider = "kie_video"
+                    item.url = saved
+                    item.duration = clip_duration
+                    item.source_info = {"provider": "kie_video", "search_term": term, "model": model_id}
+                    material_sources.append(_material_source_record(item, saved))
+        except Exception as err:
+            logger.error(f"[Kie.ai Video] Error for term {term!r}: {err}")
+
     _persist_material_sources(task_id, material_sources)
     return video_paths
 

@@ -48,6 +48,7 @@ from app.models.schema import (
 from app.services import bgm as bgm_service
 from app.services import (
     cache_manager,
+    image_generator,
     llm,
     loomloom,
     video,
@@ -3810,6 +3811,8 @@ def _render_video_settings(panel, params):
                 (tr("Pexels"), "pexels"),
                 (tr("Pixabay"), "pixabay"),
                 (tr("Coverr"), "coverr"),
+                (tr("AI Image Generation (Flux, Midjourney, DALL-E)"), "image_generation"),
+                (tr("Kie.ai AI Video (Kling, Wan, Seedance)"), "kie_video"),
                 (tr("WaveSpeed AI Video"), "wavespeed"),
                 (tr("Upload Custom Assets (Images & Videos)"), "local"),
             ]
@@ -3829,6 +3832,188 @@ def _render_video_settings(panel, params):
 
             if params.video_source == "wavespeed":
                 st.caption(tr("WaveSpeed AI Video Help"))
+
+            if params.video_source == "kie_video":
+                with st.container(border=True):
+                    st.markdown("##### 🎥 " + tr("Kie.ai AI Video Models"))
+                    st.caption("Generate cinematic AI video footage using Kling, Wan, or Seedance with your Kie.ai credits.")
+                    kie_video_models = [
+                        ("Kling 1.5 Video", "kling-v1-5"),
+                        ("Kling 2.1 Video", "kling-v2-1"),
+                        ("Wan 2.1 Video", "wan-2-1"),
+                        ("ByteDance Seedance 2.0 Video", "seedance-2-0"),
+                        ("Custom Video Model...", "custom"),
+                    ]
+                    saved_kv_model = config.app.get("kie_video_model", "kling-v1-5")
+                    chosen_kv = st.selectbox(
+                        tr("Video Generation Model"),
+                        options=[m[1] for m in kie_video_models],
+                        index=[m[1] for m in kie_video_models].index(saved_kv_model) if saved_kv_model in [m[1] for m in kie_video_models] else 0,
+                        format_func=lambda v: dict(kie_video_models)[v],
+                        key="ui_kie_vid_model_select",
+                    )
+                    if chosen_kv == "custom":
+                        custom_kv = st.text_input("Enter Kie.ai Video Model ID", value="", placeholder="e.g. kling-v2-1")
+                        _set_runtime_config("app", "kie_video_model", custom_kv.strip())
+                    else:
+                        _set_runtime_config("app", "kie_video_model", chosen_kv)
+                    if not config.app.get("kie_api_key"):
+                        st.warning("⚠️ " + tr("Please enter your Kie.ai API Key in Basic Settings to use Kie.ai Video models."))
+
+            if params.video_source == "image_generation":
+                with st.container(border=True):
+                    st.markdown("##### 🎨 " + tr("AI Image Generation Studio"))
+                    
+                    img_provider_options = [
+                        ("Kie.ai (Uses Kie.ai credits - Flux & GPT-Image)", "kie"),
+                        ("Pollinations AI (Free / Instant - Flux & Midjourney)", "pollinations"),
+                        ("OpenAI (DALL-E 3 / DALL-E 2)", "openai"),
+                    ]
+                    saved_img_prov = config.app.get("image_provider", "kie")
+                    selected_img_prov = st.selectbox(
+                        tr("Image Provider"),
+                        options=[opt[1] for opt in img_provider_options],
+                        index=[opt[1] for opt in img_provider_options].index(saved_img_prov) if saved_img_prov in [opt[1] for opt in img_provider_options] else 0,
+                        format_func=lambda v: dict((opt[1], opt[0]) for opt in img_provider_options)[v],
+                        key="ui_image_provider_select",
+                    )
+                    params.image_provider = selected_img_prov
+                    _set_runtime_config("app", "image_provider", selected_img_prov)
+
+                    col_model, col_style = st.columns([1, 1])
+                    with col_model:
+                        if selected_img_prov == "kie":
+                            kie_models = image_generator.KIE_IMAGE_MODELS + [("Custom Model ID...", "custom")]
+                            saved_kie_model = config.app.get("image_model_name", "flux-kontext-pro")
+                            chosen_kie_model = st.selectbox(
+                                tr("Image Model"),
+                                options=[m[1] for m in kie_models],
+                                index=[m[1] for m in kie_models].index(saved_kie_model) if saved_kie_model in [m[1] for m in kie_models] else 0,
+                                format_func=lambda v: dict(kie_models)[v],
+                                key="ui_kie_img_model_select",
+                            )
+                            if chosen_kie_model == "custom":
+                                custom_model_val = st.text_input("Enter Kie.ai Model ID", value="", placeholder="e.g. flux-kontext-pro")
+                                params.image_model_name = custom_model_val.strip()
+                            else:
+                                params.image_model_name = chosen_kie_model
+                            _set_runtime_config("app", "image_model_name", params.image_model_name)
+                            if not config.app.get("kie_api_key"):
+                                st.warning("⚠️ " + tr("Please enter your Kie.ai API Key in Basic Settings."))
+                        elif selected_img_prov == "pollinations":
+                            pol_models = image_generator.POLLINATIONS_IMAGE_MODELS + [("Custom Model...", "custom")]
+                            saved_pol_model = config.app.get("image_model_name", "flux")
+                            chosen_pol_model = st.selectbox(
+                                tr("Image Model"),
+                                options=[m[1] for m in pol_models],
+                                index=[m[1] for m in pol_models].index(saved_pol_model) if saved_pol_model in [m[1] for m in pol_models] else 0,
+                                format_func=lambda v: dict(pol_models)[v],
+                                key="ui_pol_img_model_select",
+                            )
+                            if chosen_pol_model == "custom":
+                                custom_model_val = st.text_input("Enter Pollinations Model", value="", placeholder="e.g. flux-realism")
+                                params.image_model_name = custom_model_val.strip()
+                            else:
+                                params.image_model_name = chosen_pol_model
+                            _set_runtime_config("app", "image_model_name", params.image_model_name)
+                            st.caption("✨ 100% Free, no API key required. Fast generation.")
+                        elif selected_img_prov == "openai":
+                            oai_models = image_generator.OPENAI_IMAGE_MODELS
+                            chosen_oai_model = st.selectbox(
+                                tr("Image Model"),
+                                options=[m[1] for m in oai_models],
+                                index=0,
+                                format_func=lambda v: dict(oai_models)[v],
+                                key="ui_oai_img_model_select",
+                            )
+                            params.image_model_name = chosen_oai_model
+                            _set_runtime_config("app", "image_model_name", params.image_model_name)
+                            if not config.app.get("openai_api_key"):
+                                st.warning("⚠️ " + tr("Please enter your OpenAI API Key in Basic Settings."))
+
+                    with col_style:
+                        style_presets = image_generator.STYLE_PRESETS + [("Custom Style Prompt...", "custom")]
+                        saved_style = config.app.get("image_prompt_style", "cinematic photography, 8k, highly detailed, photorealistic, dramatic lighting, 35mm lens")
+                        chosen_style = st.selectbox(
+                            tr("Visual Style Preset"),
+                            options=[s[1] for s in style_presets],
+                            index=1,
+                            format_func=lambda v: dict(style_presets)[v] if v in dict(style_presets) else "Custom",
+                            key="ui_image_style_select",
+                        )
+                        if chosen_style == "custom":
+                            custom_style = st.text_input("Custom Style Modifier", value=saved_style, placeholder="e.g. 8k, photorealistic, neon lighting")
+                            params.image_prompt_style = custom_style.strip()
+                        else:
+                            params.image_prompt_style = chosen_style
+                        _set_runtime_config("app", "image_prompt_style", params.image_prompt_style)
+
+                    # Interactive Scene Studio
+                    st.divider()
+                    st.markdown("###### 🎬 " + tr("Per-Scene Image Preview & Control"))
+                    st.caption("Optionally preview, inspect, or re-roll images for each scene of your script before generating the final video:")
+
+                    current_raw_terms = params.video_terms or st.session_state.get("video_terms", "")
+                    if isinstance(current_raw_terms, list):
+                        current_term_list = [t.strip() for t in current_raw_terms if t.strip()]
+                    else:
+                        current_term_list = [t.strip() for t in str(current_raw_terms).split(",") if t.strip()]
+                    
+                    if not current_term_list:
+                        script_text = params.video_script or st.session_state.get("video_script", "")
+                        paragraphs = [p.strip() for p in script_text.split("\n\n") if p.strip()]
+                        current_term_list = paragraphs[:6] if paragraphs else ["cinematic scenery, aesthetic background"]
+
+                    st.write(f"**Found {len(current_term_list)} scenes for this script:**")
+                    st.caption(", ".join([f"`{t[:35]}...`" if len(t) > 35 else f"`{t}`" for t in current_term_list]))
+
+                    btn_generate_all_col, btn_clear_col = st.columns([2, 1])
+                    if btn_generate_all_col.button("🎨 " + tr("Generate & Preview All Scene Images"), key="btn_preview_scenes"):
+                        with st.spinner("Generating scene images with " + str(params.image_model_name or "selected model") + "..."):
+                            preview_imgs = []
+                            for idx, term in enumerate(current_term_list):
+                                try:
+                                    img_p = image_generator.generate_scene_image(
+                                        prompt=term,
+                                        provider=params.image_provider,
+                                        model=params.image_model_name,
+                                        aspect=params.video_aspect,
+                                        style=params.image_prompt_style,
+                                        quality="standard",
+                                    )
+                                    preview_imgs.append({"term": term, "path": img_p, "index": idx})
+                                except Exception as e:
+                                    st.error(f"Failed generating image for '{term}': {e}")
+                            st.session_state["staged_scene_images"] = preview_imgs
+                            st.rerun(scope="app")
+
+                    staged_scenes = st.session_state.get("staged_scene_images", [])
+                    if staged_scenes:
+                        if btn_clear_col.button("🗑️ " + tr("Clear Preview Images"), key="btn_clear_scenes"):
+                            st.session_state["staged_scene_images"] = []
+                            st.rerun(scope="app")
+
+                        st.write("##### 🖼️ " + tr("Generated Scene Previews:"))
+                        grid_cols = st.columns(min(len(staged_scenes), 4))
+                        for idx, item in enumerate(staged_scenes):
+                            c = grid_cols[idx % 4]
+                            if os.path.exists(item["path"]):
+                                c.image(item["path"], caption=f"Scene {idx+1}: {item['term'][:25]}...", use_container_width=True)
+                                if c.button(f"🔄 Re-roll #{idx+1}", key=f"btn_reroll_{idx}"):
+                                    with st.spinner(f"Re-generating scene {idx+1}..."):
+                                        try:
+                                            new_p = image_generator.generate_scene_image(
+                                                prompt=item["term"],
+                                                provider=params.image_provider,
+                                                model=params.image_model_name,
+                                                aspect=params.video_aspect,
+                                                style=params.image_prompt_style,
+                                                quality="standard",
+                                            )
+                                            st.session_state["staged_scene_images"][idx]["path"] = new_p
+                                            st.rerun(scope="app")
+                                        except Exception as e:
+                                            st.error(f"Re-roll failed: {e}")
 
             if params.video_source == "local":
                 local_file_types = sorted(
@@ -5732,11 +5917,29 @@ def _render_generation_controls(
             "pixabay",
             "coverr",
             "wavespeed",
+            "image_generation",
+            "kie_video",
             "loomloom",
             "local",
         ]:
             _remove_active_generation_task(task_id)
             st.error(tr("Please Select a Valid Video Source"))
+            st.stop()
+
+        if params.video_source == "image_generation":
+            img_prov = config.app.get("image_provider", "kie")
+            if img_prov == "kie" and not config.app.get("kie_api_key", ""):
+                _remove_active_generation_task(task_id)
+                st.error("Please enter your Kie.ai API Key in Basic Settings to use Kie.ai Image models.")
+                st.stop()
+            elif img_prov == "openai" and not config.app.get("openai_api_key", ""):
+                _remove_active_generation_task(task_id)
+                st.error("Please enter your OpenAI API Key in Basic Settings to use DALL-E models.")
+                st.stop()
+
+        if params.video_source == "kie_video" and not config.app.get("kie_api_key", ""):
+            _remove_active_generation_task(task_id)
+            st.error("Please enter your Kie.ai API Key in Basic Settings to use Kie.ai Video models.")
             st.stop()
 
         if params.video_source == "pexels" and not config.app.get(
@@ -5937,6 +6140,20 @@ def _render_generation_controls(
                 m.duration = material.get("duration", 0)
                 if m.url:
                     params.video_materials.append(m)
+        elif (
+            params.video_source == "image_generation"
+            and st.session_state.get("staged_scene_images")
+        ):
+            params.video_materials = []
+            for scene_img in st.session_state["staged_scene_images"]:
+                m = MaterialInfo()
+                m.provider = "local"
+                m.url = scene_img.get("path", "")
+                m.duration = 0
+                if m.url and os.path.exists(m.url):
+                    params.video_materials.append(m)
+            if params.video_materials:
+                params.video_source = "local"
 
         reusable_voice_preview = _get_reusable_full_voice_preview(
             params,

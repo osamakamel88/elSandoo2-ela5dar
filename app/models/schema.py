@@ -90,6 +90,12 @@ class VideoParams(BaseModel):
     video_count: int = Field(default=1, ge=1)
 
     video_source: Optional[str] = "pexels"
+    image_provider: Optional[str] = "kie"
+    image_model_name: Optional[str] = "flux-kontext-pro"
+    image_prompt_style: Optional[str] = ""
+    image_quality: Optional[str] = "standard"
+    video_gen_provider: Optional[str] = "wavespeed"
+    video_gen_model_name: Optional[str] = ""
     video_materials: Optional[List[MaterialInfo]] = (
         None  # Materials used to generate the video
     )
