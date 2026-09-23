@@ -14,9 +14,9 @@ from app.utils import utils
 
 
 def switch_studio(mode_name: str):
-    """Safely switches studio mode and synchronizes widget state."""
+    """Safely switches studio mode using pending switch before next render."""
+    st.session_state["pending_studio_switch"] = mode_name
     st.session_state["ia_studio_mode"] = mode_name
-    st.session_state["ia_studio_nav_pills"] = mode_name
     st.rerun(scope="app")
 
 
@@ -38,21 +38,32 @@ def render_studio_navigation() -> str:
     if "ia_studio_mode" not in st.session_state:
         st.session_state["ia_studio_mode"] = "auto_video"
 
-    # Always ensure ia_studio_nav_pills matches ia_studio_mode
-    if st.session_state.get("ia_studio_nav_pills") != st.session_state["ia_studio_mode"]:
-        st.session_state["ia_studio_nav_pills"] = st.session_state["ia_studio_mode"]
+    if "pending_studio_switch" in st.session_state:
+        target = st.session_state.pop("pending_studio_switch")
+        st.session_state["ia_studio_mode"] = target
+        st.session_state["ia_studio_nav_pills"] = target
+    elif "ia_studio_nav_pills" not in st.session_state:
+        st.session_state["ia_studio_nav_pills"] = st.session_state.get("ia_studio_mode", "auto_video")
+
+    def _sync_nav_pills():
+        new_val = st.session_state.get("ia_studio_nav_pills")
+        if new_val and new_val in mode_keys:
+            st.session_state["ia_studio_mode"] = new_val
+        else:
+            # Prevent deselecting: keep active mode
+            st.session_state["ia_studio_nav_pills"] = st.session_state.get("ia_studio_mode", "auto_video")
 
     selected = st.pills(
         "Studio Navigation",
         options=mode_keys,
         format_func=lambda k: dict(modes).get(k, k),
         key="ia_studio_nav_pills",
+        on_change=_sync_nav_pills,
         label_visibility="collapsed",
     )
 
-    if selected and selected in mode_keys and selected != st.session_state["ia_studio_mode"]:
+    if selected and selected in mode_keys:
         st.session_state["ia_studio_mode"] = selected
-        st.rerun(scope="app")
 
     return st.session_state.get("ia_studio_mode", "auto_video")
 
