@@ -64,6 +64,7 @@ class MaterialInfo:
 
 
 class VideoParams(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="allow")
     """
     {
       "video_subject": "",

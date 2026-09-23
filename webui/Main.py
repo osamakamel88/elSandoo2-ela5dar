@@ -4058,7 +4058,10 @@ def _render_video_settings(panel, params):
                     format_func=lambda k: dict(seq_mode_options)[k],
                     key="ui_seq_mode_select",
                 )
-                params.sequence_memory_mode = chosen_seq_mode
+                try:
+                    params.sequence_memory_mode = chosen_seq_mode
+                except Exception:
+                    pass
                 st.session_state["sequence_memory_mode"] = chosen_seq_mode
 
                 if chosen_seq_mode in ("anchor_keyframe", "chained", "storyboard"):
@@ -4074,7 +4077,10 @@ def _render_video_settings(panel, params):
                                 key="ui_anchor_from_scraped",
                             )
                             if use_scraped != "None":
-                                params.sequence_anchor_frame = use_scraped
+                                try:
+                                    params.sequence_anchor_frame = use_scraped
+                                except Exception:
+                                    pass
                                 st.session_state["sequence_anchor_frame"] = use_scraped
                     with anchor_col2:
                         uploaded_anchor = st.file_uploader(
@@ -4088,11 +4094,15 @@ def _render_video_settings(panel, params):
                             anchor_path = os.path.join(anchor_dir, f"anchor_{uploaded_anchor.name}")
                             with open(anchor_path, "wb") as f:
                                 f.write(uploaded_anchor.getvalue())
-                            params.sequence_anchor_frame = anchor_path
+                            try:
+                                params.sequence_anchor_frame = anchor_path
+                            except Exception:
+                                pass
                             st.session_state["sequence_anchor_frame"] = anchor_path
 
-                    if params.sequence_anchor_frame:
-                        st.image(params.sequence_anchor_frame, caption="Active Anchor Keyframe", width=140)
+                    active_anchor = getattr(params, "sequence_anchor_frame", "") or st.session_state.get("sequence_anchor_frame", "")
+                    if active_anchor:
+                        st.image(active_anchor, caption="Active Anchor Keyframe", width=140)
 
             # 文案顺序匹配会从关键词生成到最终合成全程保持叙事顺序，因此开启时
             # 顺序拼接是唯一符合实际执行逻辑的选项。同步控件值可避免界面仍显示
