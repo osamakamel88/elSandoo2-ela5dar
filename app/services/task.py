@@ -709,6 +709,10 @@ def get_video_materials(
             audio_duration=audio_duration * params.video_count,
             max_clip_duration=params.video_clip_duration,
             match_script_order=params.match_materials_to_script,
+            sequence_memory_mode=getattr(params, "sequence_memory_mode", "none"),
+            sequence_anchor_frame=getattr(params, "sequence_anchor_frame", ""),
+            scene_models=getattr(params, "scene_models", None),
+            scene_start_frames=getattr(params, "scene_start_frames", None),
         )
         if not downloaded_videos:
             _mark_task_failed(

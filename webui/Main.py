@@ -45,12 +45,14 @@ from app.models.schema import (
     VideoParams,
     VideoTransitionMode,
 )
-from app.services import bgm as bgm_service
 from app.services import (
+    bgm as bgm_service,
+    brand_kit,
     cache_manager,
     image_generator,
     llm,
     loomloom,
+    material,
     video,
     voice,
     webui_task,
@@ -62,6 +64,7 @@ from app.services import task as tm
 from app.services import version_checker
 from app.utils.logging_utils import configure_terminal_logger
 from app.utils import utils
+from webui import imagineart_studios as ia_studios
 
 st.set_page_config(
     page_title="elSandoo2 el a5dar",
@@ -3845,15 +3848,9 @@ def _render_video_settings(panel, params):
             if params.video_source == "kie_video":
                 with st.container(border=True):
                     st.markdown("##### 🎥 " + tr("Kie.ai AI Video Models"))
-                    st.caption("Generate cinematic AI video footage using Kling, Wan, or Seedance with your Kie.ai credits.")
-                    kie_video_models = [
-                        ("Kling 1.5 Video", "kling-v1-5"),
-                        ("Kling 2.1 Video", "kling-v2-1"),
-                        ("Wan 2.1 Video", "wan-2-1"),
-                        ("ByteDance Seedance 2.0 Video", "seedance-2-0"),
-                        ("Custom Video Model...", "custom"),
-                    ]
-                    saved_kv_model = config.app.get("kie_video_model", "kling-v1-5")
+                    st.caption("Generate cinematic AI video footage using Seedance 2.5, Hailuo H3 Max, Kling 3.0, or Wan with your Kie.ai credits.")
+                    kie_video_models = material.KIE_VIDEO_MODELS + [("Custom Video Model...", "custom")]
+                    saved_kv_model = config.app.get("kie_video_model", "bytedance/seedance-2-5")
                     chosen_kv = st.selectbox(
                         tr("Video Generation Model"),
                         options=[m[1] for m in kie_video_models],
@@ -3862,7 +3859,7 @@ def _render_video_settings(panel, params):
                         key="ui_kie_vid_model_select",
                     )
                     if chosen_kv == "custom":
-                        custom_kv = st.text_input("Enter Kie.ai Video Model ID", value="", placeholder="e.g. kling-v2-1")
+                        custom_kv = st.text_input("Enter Kie.ai Video Model ID", value="", placeholder="e.g. bytedance/seedance-2-5")
                         _set_runtime_config("app", "kie_video_model", custom_kv.strip())
                     else:
                         _set_runtime_config("app", "kie_video_model", chosen_kv)
@@ -4037,6 +4034,62 @@ def _render_video_settings(panel, params):
                     key="local_video_materials_uploader",
                     help="Upload your own pictures or video clips. They will automatically be timed, transitioned, and narrated with your script!",
                 )
+
+            # Sequence Memory & Continuity (ImagineArt & Higgsfield Workflow)
+            with st.expander("🔗 Sequence Memory & Multi-Scene Continuity", expanded=False):
+                st.caption(
+                    "Maintain seamless visual continuity across scenes. Chaining passes the final frame of Scene N "
+                    "as the starting frame of Scene N+1 (Higgsfield & ImagineArt workflow)."
+                )
+                seq_mode_options = [
+                    ("none", "⚡ Independent Shots (No Conditioning)"),
+                    ("chained", "🔗 Chained Sequence Memory (End Frame -> Start Frame)"),
+                    ("anchor_keyframe", "🎭 Anchor Hero Keyframe (Lock Product / Face)"),
+                    ("storyboard", "🎬 Storyboard Custom Start Frames"),
+                ]
+                saved_seq_mode = st.session_state.get("sequence_memory_mode", "none")
+                chosen_seq_mode = st.selectbox(
+                    "Continuity Mode",
+                    options=[o[0] for o in seq_mode_options],
+                    index=[o[0] for o in seq_mode_options].index(saved_seq_mode) if saved_seq_mode in [o[0] for o in seq_mode_options] else 0,
+                    format_func=lambda k: dict(seq_mode_options)[k],
+                    key="ui_seq_mode_select",
+                )
+                params.sequence_memory_mode = chosen_seq_mode
+                st.session_state["sequence_memory_mode"] = chosen_seq_mode
+
+                if chosen_seq_mode in ("anchor_keyframe", "chained", "storyboard"):
+                    st.markdown("**🎭 Hero Anchor Frame / Product Lock**")
+                    scraped_imgs = st.session_state.get("scraped_product_images", [])
+                    anchor_col1, anchor_col2 = st.columns([1, 1])
+                    with anchor_col1:
+                        if scraped_imgs:
+                            use_scraped = st.selectbox(
+                                "Choose from Scraped Product Photos",
+                                options=["None"] + scraped_imgs,
+                                index=1 if scraped_imgs else 0,
+                                key="ui_anchor_from_scraped",
+                            )
+                            if use_scraped != "None":
+                                params.sequence_anchor_frame = use_scraped
+                                st.session_state["sequence_anchor_frame"] = use_scraped
+                    with anchor_col2:
+                        uploaded_anchor = st.file_uploader(
+                            "Or Upload Hero Anchor Frame",
+                            type=["png", "jpg", "jpeg", "webp"],
+                            key="ui_anchor_uploader",
+                        )
+                        if uploaded_anchor:
+                            anchor_dir = utils.storage_dir("local_videos")
+                            os.makedirs(anchor_dir, exist_ok=True)
+                            anchor_path = os.path.join(anchor_dir, f"anchor_{uploaded_anchor.name}")
+                            with open(anchor_path, "wb") as f:
+                                f.write(uploaded_anchor.getvalue())
+                            params.sequence_anchor_frame = anchor_path
+                            st.session_state["sequence_anchor_frame"] = anchor_path
+
+                    if params.sequence_anchor_frame:
+                        st.image(params.sequence_anchor_frame, caption="Active Anchor Keyframe", width=140)
 
             # 文案顺序匹配会从关键词生成到最终合成全程保持叙事顺序，因此开启时
             # 顺序拼接是唯一符合实际执行逻辑的选项。同步控件值可避免界面仍显示
@@ -6232,36 +6285,52 @@ def _render_application():
     if restore_applied or restore_succeeded:
         st.success(tr("Task Configuration Loaded"))
 
-    with st.container(key="main_settings_grid"):
-        panel = st.columns(4)
-    left_panel = panel[0]
-    middle_panel = panel[1]
-    audio_panel = panel[2]
-    right_panel = panel[3]
+    # ImagineArt Creative Studio Switcher
+    active_studio = ia_studios.render_studio_navigation()
 
-    params = VideoParams(video_subject="")
-    params.match_materials_to_script = bool(
-        st.session_state.get("match_materials_to_script", False)
-    )
-    _render_script_settings(left_panel, params)
+    if active_studio == "home":
+        ia_studios.render_imagineart_home_dashboard()
+    elif active_studio == "video":
+        ia_studios.render_imagineart_video_studio()
+    elif active_studio == "image":
+        ia_studios.render_imagineart_image_studio()
+    elif active_studio == "sequence":
+        ia_studios.render_imagineart_sequence_storyboard()
+    elif active_studio == "assets":
+        ia_studios.render_imagineart_assets_hub()
+    elif active_studio == "brand_kits":
+        ia_studios.render_imagineart_brand_kits()
+    else:  # "auto_video" - Full-Auto Production Pipeline
+        with st.container(key="main_settings_grid"):
+            panel = st.columns(4)
+        left_panel = panel[0]
+        middle_panel = panel[1]
+        audio_panel = panel[2]
+        right_panel = panel[3]
 
-    uploaded_files = _render_video_settings(middle_panel, params)
-    uploaded_audio_file, uploaded_bgm_file, voice_mode = _render_audio_settings(
-        audio_panel, params
-    )
+        params = VideoParams(video_subject="")
+        params.match_materials_to_script = bool(
+            st.session_state.get("match_materials_to_script", False)
+        )
+        _render_script_settings(left_panel, params)
 
-    _render_subtitle_settings(right_panel, params)
+        uploaded_files = _render_video_settings(middle_panel, params)
+        uploaded_audio_file, uploaded_bgm_file, voice_mode = _render_audio_settings(
+            audio_panel, params
+        )
 
-    generation_submitted = _render_generation_controls(
-        params,
-        uploaded_files,
-        uploaded_audio_file,
-        uploaded_bgm_file,
-        voice_mode,
-    )
+        _render_subtitle_settings(right_panel, params)
 
-    if not generation_submitted:
-        _save_runtime_config()
+        generation_submitted = _render_generation_controls(
+            params,
+            uploaded_files,
+            uploaded_audio_file,
+            uploaded_bgm_file,
+            voice_mode,
+        )
+
+        if not generation_submitted:
+            _save_runtime_config()
 
     st.markdown(
         """

@@ -3,7 +3,7 @@ import random
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable, List
+from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import quote_plus, urlencode, urlsplit, urlunsplit
 
 import requests
@@ -12,8 +12,23 @@ from moviepy.video.io.VideoFileClip import VideoFileClip
 
 from app.config import config
 from app.models.schema import MaterialInfo, VideoAspect, VideoConcatMode
-from app.services import material_cache, task_artifacts
+from app.services import image_generator, material_cache, task_artifacts
+from app.services.video import extract_last_frame
 from app.utils import utils
+
+# Supported Kie Video Models (ImagineArt & Kie Video Suite)
+KIE_VIDEO_MODELS = [
+    ("ByteDance Seedance 2.5 Video [NEW]", "bytedance/seedance-2-5"),
+    ("MiniMax Hailuo H3 Max [HOT]", "minimax/hailuo-01"),
+    ("Flux 3 Video [NEW]", "flux-3"),
+    ("Google Omni Flash [NEW]", "google/omni-flash"),
+    ("ByteDance Seedance 2.0 Video [HOT]", "seedance-2-0"),
+    ("Kling 3.0 Pro Video [BEST]", "kling-3-0"),
+    ("Kling 2.1 Video", "kling-v2-1"),
+    ("Kling 1.5 Video", "kling-v1-5"),
+    ("Wan 3.0 Video [NEW]", "wan-3-0"),
+    ("Wan 2.1 Video", "wan-2-1"),
+]
 
 # Thread-safe counter for API key rotation
 _api_key_counter = 0
@@ -1146,6 +1161,10 @@ def download_videos(
     audio_duration: float = 0.0,
     max_clip_duration: int = 5,
     match_script_order: bool = False,
+    sequence_memory_mode: str = "none",
+    sequence_anchor_frame: str = "",
+    scene_models: Optional[dict] = None,
+    scene_start_frames: Optional[dict] = None,
 ) -> List[str]:
     provider = "pexels"
     remote_search_videos = search_videos_pexels
@@ -1197,6 +1216,10 @@ def download_videos(
             audio_duration=audio_duration,
             max_clip_duration=max_clip_duration,
             material_directory=material_directory,
+            sequence_memory_mode=sequence_memory_mode,
+            sequence_anchor_frame=sequence_anchor_frame,
+            scene_models=scene_models,
+            scene_start_frames=scene_start_frames,
         )
 
     if source == "kie_video":
@@ -1207,6 +1230,10 @@ def download_videos(
             audio_duration=audio_duration,
             max_clip_duration=max_clip_duration,
             material_directory=material_directory,
+            sequence_memory_mode=sequence_memory_mode,
+            sequence_anchor_frame=sequence_anchor_frame,
+            scene_models=scene_models,
+            scene_start_frames=scene_start_frames,
         )
 
     if match_script_order:
@@ -1371,10 +1398,15 @@ def _download_videos_image_generation_on_demand(
     audio_duration: float,
     max_clip_duration: int,
     material_directory: str,
+    sequence_memory_mode: str = "none",
+    sequence_anchor_frame: str = "",
+    scene_models: Optional[dict] = None,
+    scene_start_frames: Optional[dict] = None,
 ) -> List[str]:
     """
     Generate scene images using AI Image models (Kie.ai, Pollinations, OpenAI),
     convert them into animated Ken-Burns MP4 video clips, and return their file paths.
+    Supports sequence memory chaining and per-scene model overrides.
     """
     from app.services import image_generator
 
@@ -1390,13 +1422,16 @@ def _download_videos_image_generation_on_demand(
     clip_duration = max(int(max_clip_duration), 3)
 
     image_provider = config.app.get("image_provider", "kie")
-    image_model_name = config.app.get("image_model_name", "")
+    default_image_model = config.app.get("image_model_name", "google/nano-banana-pro")
     image_prompt_style = config.app.get("image_prompt_style", "")
     image_quality = config.app.get("image_quality", "standard")
 
+    scene_models = scene_models or {}
+    scene_start_frames = scene_start_frames or {}
+
     logger.info(
         f"[ImageGen] Generating scenes: terms={len(terms)}, provider={image_provider}, "
-        f"model={image_model_name or 'default'}, target_duration={target_duration:.1f}s"
+        f"seq_mode={sequence_memory_mode}, target_duration={target_duration:.1f}s"
     )
 
     video_paths: List[str] = []
@@ -1404,21 +1439,44 @@ def _download_videos_image_generation_on_demand(
     total_duration = 0.0
     term_index = 0
     max_iterations = max(len(terms) * 4, int(target_duration / clip_duration) + 2)
+    prev_image_path = ""
 
     while total_duration < target_duration and term_index < max_iterations:
         current_term = terms[term_index % len(terms)]
-        logger.info(f"[ImageGen] Generating scene {term_index + 1}: prompt={current_term!r}")
+        scene_model = scene_models.get(term_index) or scene_models.get(str(term_index)) or default_image_model
+
+        # Determine start frame for sequence continuity
+        start_frame_to_use = ""
+        if sequence_memory_mode == "chained":
+            if term_index == 0:
+                start_frame_to_use = sequence_anchor_frame or scene_start_frames.get(0) or scene_start_frames.get("0") or ""
+            else:
+                start_frame_to_use = prev_image_path or sequence_anchor_frame
+        elif sequence_memory_mode == "anchor_keyframe":
+            start_frame_to_use = sequence_anchor_frame
+        elif sequence_memory_mode == "storyboard":
+            start_frame_to_use = scene_start_frames.get(term_index) or scene_start_frames.get(str(term_index)) or sequence_anchor_frame
+        elif scene_start_frames and (term_index in scene_start_frames or str(term_index) in scene_start_frames):
+            start_frame_to_use = scene_start_frames.get(term_index) or scene_start_frames.get(str(term_index))
+
+        logger.info(
+            f"[ImageGen] Generating scene {term_index + 1}: prompt={current_term!r}, model={scene_model}, "
+            f"start_frame={bool(start_frame_to_use)}"
+        )
 
         try:
             img_path = image_generator.generate_scene_image(
                 prompt=current_term,
                 provider=image_provider,
-                model=image_model_name,
+                model=scene_model,
                 aspect=video_aspect,
                 style=image_prompt_style,
                 quality=image_quality,
                 output_dir=material_directory,
+                start_frame=start_frame_to_use,
             )
+            if img_path and os.path.exists(img_path):
+                prev_image_path = img_path
 
             clip_filename = f"clip_{utils.md5(current_term)}_{term_index}_{int(time.time())}.mp4"
             clip_path = os.path.join(material_directory, clip_filename)
@@ -1440,7 +1498,7 @@ def _download_videos_image_generation_on_demand(
                 item.source_info = {
                     "provider": "image_generation",
                     "search_term": current_term,
-                    "model": image_model_name,
+                    "model": scene_model,
                 }
                 material_sources.append(_material_source_record(item, animated_clip))
                 logger.info(
@@ -1485,9 +1543,14 @@ def _download_videos_kie_video_on_demand(
     audio_duration: float,
     max_clip_duration: int,
     material_directory: str,
+    sequence_memory_mode: str = "none",
+    sequence_anchor_frame: str = "",
+    scene_models: Optional[dict] = None,
+    scene_start_frames: Optional[dict] = None,
 ) -> List[str]:
     """
-    Generate video clips using Kie.ai video models (Kling, Wan, Seedance) on demand.
+    Generate video clips using Kie.ai video models (Seedance 2.5, Hailuo H3, Kling 3.0, Wan 3.0) on demand.
+    Supports sequence memory chaining (Higgsfield/ImagineArt style) and per-scene model overrides.
     """
     api_key = config.app.get("kie_api_key", "").strip()
     if not api_key:
@@ -1503,7 +1566,7 @@ def _download_videos_kie_video_on_demand(
 
     target_duration = max(float(audio_duration), 5.0)
     clip_duration = min(max(int(max_clip_duration), 4), 10)
-    model_id = config.app.get("kie_video_model", "kling-v1-5").strip()
+    default_model_id = config.app.get("kie_video_model", "bytedance/seedance-2-5").strip()
 
     aspect_str = "9:16" if getattr(video_aspect, "value", video_aspect) in ("portrait", "9:16") else "16:9"
 
@@ -1516,17 +1579,53 @@ def _download_videos_kie_video_on_demand(
         "Content-Type": "application/json",
     }
 
+    scene_models = scene_models or {}
+    scene_start_frames = scene_start_frames or {}
+    prev_last_frame = ""
+
     for idx, term in enumerate(terms):
         if total_duration >= target_duration:
             break
-        logger.info(f"[Kie.ai Video] Submitting prompt: {term!r}, model={model_id}")
+
+        model_id = scene_models.get(idx) or scene_models.get(str(idx)) or default_model_id
+
+        # Determine start frame for sequence continuity
+        start_frame_to_use = ""
+        if sequence_memory_mode == "chained":
+            if idx == 0:
+                start_frame_to_use = sequence_anchor_frame or scene_start_frames.get(0) or scene_start_frames.get("0") or ""
+            else:
+                start_frame_to_use = prev_last_frame or sequence_anchor_frame
+        elif sequence_memory_mode == "anchor_keyframe":
+            start_frame_to_use = sequence_anchor_frame
+        elif sequence_memory_mode == "storyboard":
+            start_frame_to_use = scene_start_frames.get(idx) or scene_start_frames.get(str(idx)) or sequence_anchor_frame
+        elif scene_start_frames and (idx in scene_start_frames or str(idx) in scene_start_frames):
+            start_frame_to_use = scene_start_frames.get(idx) or scene_start_frames.get(str(idx))
+
+        logger.info(
+            f"[Kie.ai Video] Submitting scene {idx + 1}/{len(terms)}: prompt={term!r}, model={model_id}, "
+            f"start_frame={bool(start_frame_to_use)}"
+        )
+
+        payload_input: dict[str, Any] = {
+            "prompt": term,
+            "aspect_ratio": aspect_str,
+            "duration": str(clip_duration),
+        }
+
+        if start_frame_to_use:
+            data_uri = image_generator.encode_image_to_data_uri(start_frame_to_use)
+            if data_uri:
+                payload_input["image_url"] = data_uri
+                payload_input["first_frame"] = data_uri
+                payload_input["input_image"] = data_uri
+                payload_input["image"] = data_uri
+                logger.info(f"[Kie.ai Video] Injected start frame conditioning for scene {idx + 1}")
+
         payload = {
             "model": model_id,
-            "input": {
-                "prompt": term,
-                "aspect_ratio": aspect_str,
-                "duration": str(clip_duration),
-            },
+            "input": payload_input,
         }
         try:
             res = requests.post(
@@ -1584,6 +1683,18 @@ def _download_videos_kie_video_on_demand(
                     item.duration = clip_duration
                     item.source_info = {"provider": "kie_video", "search_term": term, "model": model_id}
                     material_sources.append(_material_source_record(item, saved))
+
+                    # For chained sequence memory: extract last frame for next scene
+                    if sequence_memory_mode == "chained":
+                        try:
+                            last_frame = extract_last_frame(saved)
+                            if last_frame and os.path.exists(last_frame):
+                                prev_last_frame = last_frame
+                                logger.info(
+                                    f"[Sequence Memory] Chained last frame extracted from scene {idx + 1}: {last_frame}"
+                                )
+                        except Exception as frame_err:
+                            logger.warning(f"[Sequence Memory] Could not extract last frame: {frame_err}")
         except Exception as err:
             logger.error(f"[Kie.ai Video] Error for term {term!r}: {err}")
 

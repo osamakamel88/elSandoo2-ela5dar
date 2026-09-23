@@ -1,3 +1,5 @@
+import base64
+import mimetypes
 import os
 import time
 import urllib.parse
@@ -11,14 +13,18 @@ from app.config import config
 from app.models.schema import VideoAspect
 from app.utils import utils
 
-# Supported Image Models Catalog
+# Supported Image Models Catalog (ImagineArt & Kie.ai Suite)
 KIE_IMAGE_MODELS = [
+    ("Nano Banana Pro (Google) [HOT]", "google/nano-banana-pro"),
+    ("Nano Banana 2 (Google)", "google/nano-banana"),
+    ("ByteDance Seedream V5 Pro [NEW]", "bytedance/seedream-5-0-pro"),
+    ("ByteDance Seedream 4.0", "bytedance/seedream-4-0"),
+    ("GPT Image 2.5 Sunburst [NEW]", "gpt-image-2.5"),
+    ("ImagineArt 2.0 [BEST]", "imagineart-2-0"),
+    ("Grok Imagine 2.0 (xAI)", "grok-imagine"),
     ("Flux Kontext Pro (Ultra Realistic)", "flux-kontext-pro"),
-    ("Flux 2 Pro (Text to Image)", "flux-2/pro-text-to-image"),
+    ("Flux 2 Pro", "flux-2/pro-text-to-image"),
     ("Flux 2 Flex", "flux-2/flex-text-to-image"),
-    ("GPT Image 2", "gpt-image-2"),
-    ("Grok Imagine 2.0", "grok-imagine"),
-    ("ByteDance Seedream", "seedream"),
 ]
 
 POLLINATIONS_IMAGE_MODELS = [
@@ -85,6 +91,29 @@ def _apply_prompt_style(prompt: str, style: str) -> str:
     return f"{prompt}, {style.strip()}"
 
 
+def encode_image_to_data_uri(image_path: str) -> str:
+    """
+    Encodes a local image file to a base64 Data URI (e.g. data:image/png;base64,...).
+    If already a URL or data URI, returns it directly.
+    """
+    if not image_path:
+        return ""
+    if image_path.startswith("data:") or image_path.startswith("http://") or image_path.startswith("https://"):
+        return image_path
+    if not os.path.exists(image_path):
+        return ""
+    mime_type, _ = mimetypes.guess_type(image_path)
+    if not mime_type:
+        mime_type = "image/png"
+    try:
+        with open(image_path, "rb") as f:
+            encoded = base64.b64encode(f.read()).decode("utf-8")
+        return f"data:{mime_type};base64,{encoded}"
+    except Exception as e:
+        logger.warning(f"Failed to encode image {image_path} to data URI: {e}")
+        return ""
+
+
 def generate_image_pollinations(
     prompt: str,
     model: str = "flux",
@@ -130,10 +159,11 @@ def generate_image_kie(
     quality: str = "standard",
     output_dir: str = "",
     api_key: str = "",
+    start_frame: Optional[str] = None,
 ) -> str:
     """
     Generate an image using Kie.ai task API (/api/v1/jobs/createTask & recordInfo).
-    Uses the user's Kie.ai credits.
+    Uses the user's Kie.ai credits. Supports start_frame image conditioning.
     """
     effective_api_key = (api_key or config.app.get("kie_api_key", "")).strip()
     if not effective_api_key:
@@ -147,13 +177,23 @@ def generate_image_kie(
         "Authorization": f"Bearer {effective_api_key}",
         "Content-Type": "application/json",
     }
+    input_data: Dict[str, Any] = {
+        "prompt": prompt,
+        "aspect_ratio": aspect_ratio_str,
+        "resolution": resolution,
+    }
+    if start_frame:
+        ref_uri = encode_image_to_data_uri(start_frame)
+        if ref_uri:
+            input_data["image_url"] = ref_uri
+            input_data["input_image"] = ref_uri
+            input_data["image"] = ref_uri
+            input_data["first_frame"] = ref_uri
+            logger.info(f"[Kie.ai] Added start_frame conditioning: {start_frame[:60]}")
+
     payload = {
         "model": model_id,
-        "input": {
-            "prompt": prompt,
-            "aspect_ratio": aspect_ratio_str,
-            "resolution": resolution,
-        },
+        "input": input_data,
     }
 
     logger.info(f"[Kie.ai] Submitting image task: model={model_id}, aspect={aspect_ratio_str}")
@@ -323,9 +363,11 @@ def generate_scene_image(
     output_dir: str = "",
     api_key: str = "",
     base_url: str = "",
+    start_frame: Optional[str] = None,
 ) -> str:
     """
     Unified entry point to generate a scene image with full customizability.
+    Supports start_frame conditioning for visual continuity.
     """
     final_prompt = _apply_prompt_style(prompt, style)
     prov = (provider or "kie").lower()
@@ -356,6 +398,7 @@ def generate_scene_image(
             quality=quality,
             output_dir=output_dir,
             api_key=api_key,
+            start_frame=start_frame,
         )
 
 

@@ -1,6 +1,6 @@
 import warnings
 from enum import Enum
-from typing import Any, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 import pydantic
 from pydantic import BaseModel, ConfigDict, Field
@@ -96,6 +96,13 @@ class VideoParams(BaseModel):
     image_quality: Optional[str] = "standard"
     video_gen_provider: Optional[str] = "wavespeed"
     video_gen_model_name: Optional[str] = ""
+    # Sequence Memory & Continuity (ImagineArt & Higgsfield style)
+    sequence_memory_mode: Optional[str] = "none"  # "none", "chained", "anchor_keyframe", "storyboard"
+    sequence_anchor_frame: Optional[str] = ""
+    scene_models: Optional[Dict[int, str]] = Field(default_factory=dict)
+    scene_start_frames: Optional[Dict[int, str]] = Field(default_factory=dict)
+    brand_kit_id: Optional[str] = ""
+
     video_materials: Optional[List[MaterialInfo]] = (
         None  # Materials used to generate the video
     )

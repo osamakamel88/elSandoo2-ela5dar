@@ -1400,3 +1400,43 @@ def preprocess_video(materials: List[MaterialInfo], clip_duration=4):
         valid_materials.append(material)
 
     return valid_materials
+
+
+def extract_last_frame(video_path: str, output_path: str = "") -> str:
+    """
+    Extracts the final frame of a video clip and saves it as an image file.
+    Essential for Higgsfield / ImagineArt sequence memory chaining across shots.
+    """
+    if not video_path or not os.path.exists(video_path):
+        return ""
+    if not output_path:
+        base, _ = os.path.splitext(video_path)
+        output_path = f"{base}_last_frame.jpg"
+
+    # 1. Try MoviePy VideoFileClip
+    try:
+        with VideoFileClip(video_path) as clip:
+            t = max(0.0, float(clip.duration) - 0.05)
+            frame = clip.get_frame(t)
+            img = Image.fromarray(frame)
+            img.save(output_path, "JPEG", quality=95)
+            logger.info(f"Extracted last frame to {output_path} at t={t:.2f}s")
+            return output_path
+    except Exception as e:
+        logger.warning(f"MoviePy last frame extraction failed for {video_path}: {e}")
+
+    # 2. Fast FFmpeg CLI fallback using imageio_ffmpeg
+    try:
+        import imageio_ffmpeg
+        ffmpeg_bin = imageio_ffmpeg.get_ffmpeg_exe()
+        cmd = [
+            ffmpeg_bin, "-y", "-sseof", "-0.1", "-i", video_path,
+            "-update", "1", "-frames:v", "1", "-q:v", "2", output_path
+        ]
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
+        if res.returncode == 0 and os.path.exists(output_path):
+            return output_path
+    except Exception as e2:
+        logger.warning(f"FFmpeg last frame extraction fallback failed: {e2}")
+
+    return ""

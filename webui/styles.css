@@ -437,3 +437,145 @@ div[class*="st-key-task_row_"] button[kind="secondary"] p {
         min-width: 1.75rem !important;
     }
 }
+
+/* ==========================================================================
+   ImagineArt Creative Studio Modern Styles & Badges
+   ========================================================================== */
+
+/* Badges */
+.ia-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 7px;
+    border-radius: 9999px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    margin-left: 6px;
+    vertical-align: middle;
+}
+
+.ia-badge-hot {
+    background: linear-gradient(135deg, #ef4444 0%, #f97316 100%);
+    color: #ffffff !important;
+    box-shadow: 0 1px 4px rgba(239, 68, 68, 0.35);
+}
+
+.ia-badge-new {
+    background: linear-gradient(135deg, #0ea5e9 0%, #3b82f6 100%);
+    color: #ffffff !important;
+    box-shadow: 0 1px 4px rgba(14, 165, 233, 0.35);
+}
+
+.ia-badge-best {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: #ffffff !important;
+    box-shadow: 0 1px 4px rgba(16, 185, 129, 0.35);
+}
+
+/* Studio Hero Cards */
+.ia-card {
+    background: linear-gradient(145deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.02) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 16px;
+    padding: 20px;
+    transition: all 0.25s ease-in-out;
+    position: relative;
+    overflow: hidden;
+}
+
+.ia-card:hover {
+    border-color: rgba(34, 197, 94, 0.5);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.ia-card-title {
+    font-size: 1.15rem;
+    font-weight: 700;
+    margin-bottom: 6px;
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.ia-card-desc {
+    font-size: 0.85rem;
+    color: #94a3b8;
+    line-height: 1.4;
+    margin: 0;
+}
+
+/* Storyboard Sequence Memory Cards */
+.ia-storyboard-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 16px;
+    margin: 16px 0;
+}
+
+.ia-scene-node {
+    background: rgba(30, 41, 59, 0.5);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 12px;
+    padding: 14px;
+    position: relative;
+    transition: all 0.2s ease;
+}
+
+.ia-scene-node:hover {
+    border-color: #22c55e;
+    background: rgba(30, 41, 59, 0.8);
+}
+
+.ia-chain-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.75rem;
+    color: #22c55e;
+    font-weight: 600;
+    background: rgba(34, 197, 94, 0.12);
+    padding: 3px 8px;
+    border-radius: 6px;
+    margin-bottom: 8px;
+}
+
+/* Color Swatches for Brand Kits */
+.ia-swatch-box {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    margin-right: 12px;
+    margin-bottom: 8px;
+}
+
+.ia-swatch {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.ia-swatch-label {
+    font-size: 0.72rem;
+    color: #94a3b8;
+    margin-top: 4px;
+    text-transform: capitalize;
+}
+
+/* Studio Nav bar styling */
+.ia-studio-nav {
+    display: flex;
+    gap: 8px;
+    background: rgba(15, 23, 42, 0.6);
+    padding: 6px;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    margin-bottom: 20px;
+    overflow-x: auto;
+}
+
