@@ -418,6 +418,133 @@ SCRIPTWRITING RULES:
     return prompt.strip()
 
 
+def synthesize_search_terms(product_info: Dict[str, Any]) -> List[str]:
+    """
+    Extract meaningful, visually descriptive search terms for stock video engines
+    (Pexels, Pixabay) or AI image prompts based on product metadata.
+    """
+    title = (product_info.get("title") or "").lower()
+    
+    terms: List[str] = []
+    
+    # Check category cues
+    if any(w in title for w in ["عرق", "deodorant", "تفتيح", "بشرة", "skin", "serum", "cream", "flawless", "fresh", "beauty"]):
+        terms.extend(["skincare routine", "beauty cosmetic product", "natural skincare bottle", "clean glowing skin", "underarm brightening care", "luxury cosmetic packaging"])
+    elif any(w in title for w in ["شعر", "hair", "shampoo", "oil", "زيت"]):
+        terms.extend(["hair care routine", "healthy shiny hair", "hair serum cosmetic", "luxury hair oil"])
+    elif any(w in title for w in ["عطر", "perfume", "fragrance", "oud", "مسك"]):
+        terms.extend(["luxury perfume bottle", "fragrance spraying", "elegant aroma", "perfume commercial"])
+    elif any(w in title for w in ["ساعة", "watch", "smartwatch"]):
+        terms.extend(["smartwatch on wrist", "luxury wristwatch", "modern digital watch", "watch unboxing"])
+    elif any(w in title for w in ["حذاء", "shoes", "sneakers", "شنطة", "bag", "فستان", "dress", "ملابس", "clothes"]):
+        terms.extend(["fashion outfit showcase", "stylish apparel", "trendy model clothes", "fashion shopping review"])
+    elif any(w in title for w in ["سماعة", "headphone", "earbuds", "phone", "هاتف", "شاحن", "charger"]):
+        terms.extend(["modern wireless earbuds", "tech lifestyle product", "sleek gadget close up", "electronics unboxing"])
+    else:
+        # Generic high-converting commercial footage
+        terms.extend(["modern product showcase", "unboxing aesthetic review", "customer shopping online", "commercial product shot", "lifestyle commercial promo"])
+
+    # Add 1-2 words from title if ASCII or clean
+    ascii_words = [w for w in re.findall(r"[a-zA-Z]{3,}", product_info.get("title", "")) if w.lower() not in ["and", "for", "with", "the", "products"]]
+    for w in ascii_words[:2]:
+        terms.append(f"{w} product")
+
+    return terms[:8]
+
+
+def synthesize_product_script(
+    product_info: Dict[str, Any],
+    theme_context: str = "",
+    language: str = "",
+) -> str:
+    """
+    Algorithmically synthesize a punchy, high-converting promotional script
+    from product specs (title, features, price, platform, and creative theme).
+    Guarantees the user always has a ready-to-render script even without an active LLM.
+    """
+    title = (product_info.get("title") or "هذا المنتج المميز").strip()
+    price = str(product_info.get("price") or "").strip()
+    currency = str(product_info.get("currency") or "EGP").strip()
+    features = [f.strip() for f in product_info.get("features", []) if len(f.strip()) > 3]
+    description = (product_info.get("description") or "").strip()
+
+    # Determine language & dialect
+    is_arabic = any('\u0600' <= char <= '\u06ff' for char in f"{title} {theme_context} {language}")
+    theme_lower = theme_context.lower()
+    is_egyptian = "مصر" in theme_context or "egyptian" in theme_lower
+    is_gulf = "خليج" in theme_context or "gulf" in theme_lower or "saudi" in theme_lower
+
+    if is_arabic:
+        feature_text = ""
+        if features:
+            if len(features) >= 2:
+                feature_text = f"بيتميز بـ {features[0]}، وكمان {features[1]}." if is_egyptian else f"يتميز بـ {features[0]}، بالإضافة إلى {features[1]}."
+            else:
+                feature_text = f"بيتميز بـ {features[0]}." if is_egyptian else f"يتميز بـ {features[0]}."
+        elif description:
+            desc_snippet = description[:90].rstrip("،.,; ")
+            feature_text = f"معروف إنه {desc_snippet}." if is_egyptian else f"يقدم {desc_snippet}."
+
+        price_text = ""
+        if price:
+            if is_egyptian:
+                curr_name = "جنيه" if currency in ("EGP", "جنيه") else currency
+                price_text = f"ودلوقتي عليه عرض خاص بـ {price} {curr_name} بس لفترة محدودة!"
+            elif is_gulf:
+                curr_name = "ريال" if currency in ("SAR", "ريال") else currency
+                price_text = f"والحين متوفر بعرض استثنائي بسعر {price} {curr_name} فقط!"
+            else:
+                price_text = f"ومتوفر الآن بعرض خاص بسعر {price} {currency} فقط لفترة محدودة!"
+
+        if is_egyptian:
+            script_parts = [
+                f"لو بتدوري على النتيجة المضمونة والانتعاش الحقيقي، {title} هو الاختيار اللي هيغير روتينك تماماً!",
+                feature_text,
+                "المنتج متجرب وبيفرق في روتينك اليومي من أول أسبوع.",
+                price_text,
+                "اطلبي دلوقتي من الرابط المباشر واستفيدي بالخصم قبل نفاذ الكمية!"
+            ]
+        elif is_gulf:
+            script_parts = [
+                f"تبين العناية المتكاملة والنتيجة اللي تبهرك؟ {title} هو الحل المثالي لجمالك وروتينك اليومي!",
+                feature_text,
+                "جودة ممتازة وفرق واضح من أول استخدام.",
+                price_text,
+                "اطلبي الحين عبر الرابط قبل نفاد الكمية!"
+            ]
+        else:
+            script_parts = [
+                f"اكتشفوا الحل الأمثل والفعّال للعناية مع {title}!",
+                feature_text,
+                "تركيبة متطورة تمنحكم عناية فائقة ونتائج ملموسة من أول تجربة.",
+                price_text,
+                "احصلوا عليه الآن بسهولة عبر الرابط واستمتعوا بالعرض الحصري!"
+            ]
+    else:
+        # English
+        feature_text = ""
+        if features:
+            if len(features) >= 2:
+                feature_text = f"It features {features[0]}, plus {features[1]}."
+            else:
+                feature_text = f"It features {features[0]}."
+        elif description:
+            feature_text = f"Known for {description[:90].strip()}."
+
+        price_text = f"And right now you can get it for just {price} {currency} on special offer!" if price else "Available now on a limited-time special offer!"
+
+        script_parts = [
+            f"Stop scrolling! If you want real, noticeable results, the {title} is an absolute game-changer!",
+            feature_text,
+            "Experience premium quality that upgrades your daily routine from day one.",
+            price_text,
+            "Click the link to order yours today before stock runs out!"
+        ]
+
+    clean_parts = [p.strip() for p in script_parts if p and p.strip()]
+    return " ".join(clean_parts)
+
+
 def generate_product_script(
     product_info: Dict[str, Any],
     theme_context: str = "",
@@ -426,7 +553,7 @@ def generate_product_script(
 ) -> str:
     """
     Generate promotional script using the project's LLM engine.
-    Self-contained within product_importer so it never fails due to stale module caches.
+    Gracefully falls back to high-converting template synthesis if LLM fails or is unavailable.
     """
     from app.services import llm
 
@@ -439,7 +566,7 @@ def generate_product_script(
     logger.info(f"generating product video script: title='{title[:40]}', theme='{theme_context[:40]}'")
 
     final_script = ""
-    for i in range(3):
+    for i in range(2):
         try:
             if hasattr(llm, "_generate_response"):
                 if app_config is None:
@@ -456,7 +583,7 @@ def generate_product_script(
             else:
                 response = ""
 
-            if response:
+            if response and not response.strip().startswith("Error:"):
                 cleaned = response.replace("*", "").replace("#", "")
                 cleaned = re.sub(r"\[.*?\]", "", cleaned)
                 cleaned = re.sub(r"\(.*?\)", "", cleaned)
@@ -465,7 +592,16 @@ def generate_product_script(
             if final_script:
                 break
         except Exception as exc:
-            logger.error(f"failed to generate product script in attempt {i+1}: {exc}")
+            logger.warning(f"LLM script generation attempt {i+1} failed: {exc}")
+
+    # Fallback to intelligent synthesis if LLM failed, returned error, or empty
+    if not final_script:
+        logger.info("Using intelligent template script synthesis for product video.")
+        final_script = synthesize_product_script(
+            product_info=product_info,
+            theme_context=theme_context,
+            language=language,
+        )
 
     return final_script.strip()
 

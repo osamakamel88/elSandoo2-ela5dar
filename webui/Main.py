@@ -3537,82 +3537,83 @@ def _render_product_and_post_importer(params):
                             staged_materials = product_importer.download_and_stage_images(info["image_urls"])
 
                     with st.spinner("Crafting tailored promotional script with AI..."):
-                        def generate_promo_script(app_config_snapshot):
-                            if hasattr(product_importer, "generate_product_script"):
-                                script = product_importer.generate_product_script(
+                        script = ""
+                        terms = []
+                        try:
+                            def generate_promo_script(app_config_snapshot):
+                                promo_s = product_importer.generate_product_script(
                                     product_info=info,
                                     theme_context=theme_context,
                                     language=params.video_language,
                                     app_config=app_config_snapshot,
                                 )
-                            elif hasattr(llm, "generate_product_script"):
-                                script = llm.generate_product_script(
-                                    product_info=info,
-                                    theme_context=theme_context,
-                                    language=params.video_language,
-                                    app_config=app_config_snapshot,
-                                )
-                            else:
-                                import importlib
+                                promo_terms = []
                                 try:
-                                    importlib.reload(llm)
-                                except Exception:
-                                    pass
-                                if hasattr(llm, "generate_product_script"):
-                                    script = llm.generate_product_script(
-                                        product_info=info,
-                                        theme_context=theme_context,
-                                        language=params.video_language,
+                                    promo_terms = llm.generate_terms(
+                                        info.get("title", "Product"),
+                                        promo_s,
+                                        amount=8 if params.match_materials_to_script else 5,
+                                        match_script_order=params.match_materials_to_script,
                                         app_config=app_config_snapshot,
                                     )
-                                else:
-                                    script = llm.generate_script(
-                                        video_subject=f"{info.get('title', '')} - {theme_context}",
-                                        language=params.video_language,
-                                        app_config=app_config_snapshot,
-                                    )
+                                except Exception as exc:
+                                    logger.warning(f"Terms generation failed: {exc}")
+                                    promo_terms = []
+                                return promo_s, promo_terms
 
-                            terms = llm.generate_terms(
-                                info.get("title", "Product"),
-                                script,
-                                amount=8 if params.match_materials_to_script else 5,
-                                match_script_order=params.match_materials_to_script,
-                                app_config=app_config_snapshot,
+                            res = _run_llm_read_operation(
+                                "generate_product_script",
+                                generate_promo_script,
                             )
-                            return script, terms
+                            if res and isinstance(res, (tuple, list)) and len(res) == 2:
+                                script, terms = res
+                        except Exception as exc:
+                            logger.warning(f"Error during script generation operation: {exc}")
 
-                        script, terms = _run_llm_read_operation(
-                            "generate_product_script",
-                            generate_promo_script,
-                        )
+                        # Guarantee valid promotional script and visual terms
+                        if not script or script.startswith("Error: "):
+                            script = product_importer.synthesize_product_script(
+                                product_info=info,
+                                theme_context=theme_context,
+                                language=params.video_language,
+                            )
+                        if not terms or any(t.startswith("Error:") for t in terms):
+                            terms = product_importer.synthesize_search_terms(info)
 
-                    if script:
-                        st.session_state["video_subject"] = info.get("title", "")
-                        st.session_state["video_script"] = script
-                        st.session_state["video_terms"] = ", ".join(terms) if terms else info.get("title", "")
-                        st.session_state["last_imported_product"] = info
+                    st.session_state["video_subject"] = info.get("title", "")
+                    st.session_state["video_script"] = script
+                    st.session_state["video_terms"] = ", ".join(terms) if terms else info.get("title", "")
+                    st.session_state["last_imported_product"] = info
+                    st.session_state["last_imported_script"] = script
+                    st.session_state["last_imported_terms"] = terms
 
-                        if staged_materials:
-                            st.session_state["local_video_materials"] = [
-                                {
-                                    "provider": m["provider"],
-                                    "url": m["url"],
-                                    "duration": 0,
-                                }
-                                for m in staged_materials
-                            ]
-                            st.session_state["staged_imported_thumbnails"] = [
-                                m["url"] for m in staged_materials
-                            ]
-                            st.session_state["video_source"] = "local"
-                            _set_runtime_config("app", "video_source", "local")
-                            _set_stable_widget_value("video_source_select", "local")
+                    params.video_subject = info.get("title", "")
+                    params.video_script = script
+                    params.video_terms = ", ".join(terms) if terms else info.get("title", "")
 
-                        st.toast("Product imported & script generated successfully!")
-                        st.rerun(scope="app")
+                    if staged_materials:
+                        st.session_state["local_video_materials"] = [
+                            {
+                                "provider": m["provider"],
+                                "url": m["url"],
+                                "duration": 0,
+                            }
+                            for m in staged_materials
+                        ]
+                        st.session_state["staged_imported_thumbnails"] = [
+                            m["url"] for m in staged_materials
+                        ]
+                        st.session_state["video_source"] = "local"
+                        _set_runtime_config("app", "video_source", "local")
+                        _set_stable_widget_value("video_source_select", "local")
+
+                    st.toast("Product imported & script generated successfully!")
+                    st.rerun(scope="app")
 
         # Display preview card if product was imported
         imported = st.session_state.get("last_imported_product")
+        imported_script = st.session_state.get("last_imported_script") or st.session_state.get("video_script")
+        imported_terms = st.session_state.get("last_imported_terms")
         thumbnails = st.session_state.get("staged_imported_thumbnails") or []
         if imported:
             with st.container(border=True):
@@ -3627,6 +3628,14 @@ def _render_product_and_post_importer(params):
                     for idx, thumb_path in enumerate(thumbnails[:6]):
                         if os.path.exists(thumb_path):
                             thumb_cols[idx].image(thumb_path, use_container_width=True)
+
+                if imported_script and not imported_script.startswith("Error: "):
+                    st.markdown("**📝 Generated Video Scenario (Script):**")
+                    st.info(imported_script)
+
+                if imported_terms:
+                    terms_list = imported_terms if isinstance(imported_terms, list) else [t.strip() for t in str(imported_terms).split(",") if t.strip()]
+                    st.caption("🏷️ Visual Search Terms: " + " • ".join(f"`{t}`" for t in terms_list[:6]))
 
 
 def _render_script_settings(panel, params):
