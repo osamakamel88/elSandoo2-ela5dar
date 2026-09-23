@@ -1440,3 +1440,70 @@ def extract_last_frame(video_path: str, output_path: str = "") -> str:
         logger.warning(f"FFmpeg last frame extraction fallback failed: {e2}")
 
     return ""
+
+
+def combine_scene_clips(clip_paths: List[str], output_path: str = "") -> str:
+    """
+    Concatenates multiple video clips sequentially into a single video file.
+    Used to assemble Higgsfield / ImagineArt storyboard sequences.
+    """
+    import time
+    valid_clips = [p for p in clip_paths if p and os.path.exists(p)]
+    if not valid_clips:
+        return ""
+    if len(valid_clips) == 1:
+        return valid_clips[0]
+
+    if not output_path:
+        first_dir = os.path.dirname(valid_clips[0])
+        output_path = os.path.join(first_dir, f"master_sequence_{int(time.time())}.mp4")
+
+    # 1. Try MoviePy concatenate_videoclips
+    try:
+        from moviepy import VideoFileClip, concatenate_videoclips
+        loaded_clips = [VideoFileClip(p) for p in valid_clips]
+        try:
+            final_clip = concatenate_videoclips(loaded_clips, method="compose")
+            final_clip.write_videofile(
+                output_path,
+                fps=30,
+                codec="libx264",
+                audio_codec="aac" if final_clip.audio is not None else None,
+                logger=None,
+            )
+            final_clip.close()
+            logger.info(f"Combined {len(valid_clips)} clips to {output_path}")
+            return output_path
+        finally:
+            for c in loaded_clips:
+                try:
+                    c.close()
+                except Exception:
+                    pass
+    except Exception as e:
+        logger.warning(f"MoviePy concat failed: {e}. Trying FFmpeg concat demuxer...")
+
+    # 2. FFmpeg concat demuxer fallback
+    try:
+        import imageio_ffmpeg
+        ffmpeg_bin = imageio_ffmpeg.get_ffmpeg_exe()
+        concat_txt = os.path.join(os.path.dirname(output_path), f"concat_{int(time.time())}.txt")
+        with open(concat_txt, "w", encoding="utf-8") as f:
+            for p in valid_clips:
+                clean_p = p.replace("\\", "/")
+                f.write(f"file '{clean_p}'\n")
+        cmd = [
+            ffmpeg_bin, "-y", "-f", "concat", "-safe", "0",
+            "-i", concat_txt, "-c", "copy", output_path
+        ]
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
+        try:
+            os.remove(concat_txt)
+        except Exception:
+            pass
+        if res.returncode == 0 and os.path.exists(output_path):
+            return output_path
+    except Exception as e2:
+        logger.warning(f"FFmpeg concat fallback failed: {e2}")
+
+    return valid_clips[0]

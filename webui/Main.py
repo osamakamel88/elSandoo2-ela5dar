@@ -3647,6 +3647,9 @@ def _render_script_settings(panel, params):
         with st.container(border=True):
             st.write(tr("Video Script Settings"))
             _render_product_and_post_importer(params)
+            active_brand_guidelines = st.session_state.get("brand_guideline_prompt", "")
+            if active_brand_guidelines:
+                st.info(f"🏷️ **Active Brand**: {active_brand_guidelines}")
             params.video_subject = st.text_area(
                 tr("Video Subject"),
                 placeholder=tr("Video Subject Placeholder"),
