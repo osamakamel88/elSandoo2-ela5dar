@@ -2052,6 +2052,29 @@ def get_groq_model_ids(api_key: str, base_url: str) -> list[str]:
         return []
 
 
+@st.cache_data(ttl=15, show_spinner=False)
+def get_ollama_model_ids(base_url: str = "") -> list[str]:
+    raw_url = (base_url or "http://localhost:11434").strip().rstrip("/")
+    if raw_url.endswith("/v1"):
+        raw_url = raw_url[:-3].rstrip("/")
+    tags_url = f"{raw_url}/api/tags"
+    try:
+        response = requests.get(tags_url, timeout=3)
+        if response.status_code == 200:
+            payload = response.json()
+            models = payload.get("models", [])
+            model_names = []
+            for item in models:
+                if isinstance(item, dict):
+                    name = item.get("name")
+                    if isinstance(name, str) and name.strip():
+                        model_names.append(name.strip())
+            return sorted(set(model_names))
+    except Exception as e:
+        logger.debug(f"failed to fetch ollama models: {e}")
+    return []
+
+
 def _get_material_api_keys(config_key):
     """将配置中的素材 API Key 统一转换为 WebUI 可编辑字符串。"""
     api_keys = config.app.get(config_key, [])
@@ -2755,6 +2778,41 @@ def _render_settings_dialog():
                         llm_form_panel.caption(
                             tr("Groq API Key Required for Model List")
                         )
+            elif llm_provider == "ollama":
+                effective_base_url = st_llm_base_url or llm_base_url
+                ollama_models = get_ollama_model_ids(base_url=effective_base_url)
+                if ollama_models:
+                    model_options = ollama_models + ["Custom..."]
+                    selected_index = 0
+                    if llm_model_name in ollama_models:
+                        selected_index = ollama_models.index(llm_model_name)
+                    chosen_model = llm_form_panel.selectbox(
+                        tr("Model Name"),
+                        options=model_options,
+                        index=selected_index,
+                        key="ollama_model_name_select",
+                    )
+                    if chosen_model == "Custom...":
+                        st_llm_model_name = llm_form_panel.text_input(
+                            tr("Custom Model Name"),
+                            value=llm_model_name if llm_model_name not in ollama_models else "",
+                            key="ollama_custom_model_input",
+                        )
+                    else:
+                        st_llm_model_name = chosen_model
+                else:
+                    st_llm_model_name = llm_form_panel.text_input(
+                        tr("Model Name"),
+                        value=llm_model_name,
+                        key="ollama_model_name_input",
+                    )
+                    llm_form_panel.warning(
+                        "⚠️ **No models installed in local Ollama yet.**\n\n"
+                        "To use Ollama, download a model via terminal:\n"
+                        "- `ollama pull qwen2.5:1.5b` *(Fast on CPU, ~986MB)*\n"
+                        "- `ollama pull qwen2.5:3b` *(Balanced, ~1.9GB)*\n"
+                        "- `ollama pull qwen2.5` *(Full 7B, ~4.7GB)*"
+                    )
             else:
                 st_llm_model_name = llm_form_panel.text_input(
                     tr("Model Name"),
